@@ -17,7 +17,7 @@
 
 ## 📋 Overview
 
-ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **detection**, **3D reconstruction**, and **physics-informed growth prediction**. Starting from a single 2D MRI slice, CHRONOS can:
+ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **detection**, **3D reconstruction**, and **physics-informed growth prediction**. Starting from a single 2D MRI slice, ORACLE can:
 
 - ✅ Segment and localize tumors with pixel-level precision (DICE >0.90)
 - 🔄 Reconstruct full 3D brain volumes
@@ -52,6 +52,8 @@ This project addresses the critical clinical need for **early intervention plann
 ---
 
 ## 🏗️ Architecture
+
+                â”‚  â€¢ Skip Connections  
 ### Pipeline Overview
 
 ```
@@ -65,7 +67,7 @@ This project addresses the critical clinical need for **early intervention plann
                   ┌─────────────────────┐
                   │ Segmentation Module │ → Tumor Detection + Tumor Mask
                   │   (Unet++)          │
-                  │   Encoder-Decoder   │
+                  │   Encoder-Decoder   |
                   │   Skip Connections  │  
                   └─────────────────────┘
                             │
