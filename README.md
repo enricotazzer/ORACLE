@@ -52,11 +52,6 @@ This project addresses the critical clinical need for **early intervention plann
 ---
 
 ## 🏗️ Architecture
-
-Segmentation Module     â”‚ â†’ Tumor Mask uâ‚€(x)
-                â”‚      (U-Net)             â”‚   + Tumor Detection
-                â”‚  â€¢ Encoder-Decoder       â”‚   (Binary: Present/Absent)
-                â”‚  â€¢ Skip Connections  
 ### Pipeline Overview
 
 ```
