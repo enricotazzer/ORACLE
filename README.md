@@ -70,8 +70,8 @@ Segmentation Module     â”‚ â†’ Tumor Mask uâ‚€(x)
                   ┌─────────────────────┐
                   │ Segmentation Module │ → Tumor Detection + Tumor Mask
                   │   (Unet++)          │
-                  │   Encoder-Decoder   |
-                  |   Skip Connections  |  
+                  │   Encoder-Decoder   │
+                  │   Skip Connections  │  
                   └─────────────────────┘
                             │
                             ▼ (Yes)
