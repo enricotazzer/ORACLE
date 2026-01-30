@@ -52,11 +52,44 @@ This project addresses the critical clinical need for **early intervention plann
 
 ## 🏗️ Architecture
 
-
-## ðŸ—ï¸ Architecture
+### Pipeline Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐│                    ORACLE Pipeline                          │└─────────────────────────────────────────────────────────────┘│Single MRI Slice Input│▼┌──────────────────┐│ Detection Module │ → Tumor Detected?│   (ResNet50 +    ││    Grad-CAM)     │└──────────────────┘│▼ (Yes)┌────────────────────────┐│ Reconstruction Module  │ → Full 3D Volume│  (Diffusion Model +    ││   Positional Encoding) │└────────────────────────┘│▼┌──────────────────┐│  Segmentation    │ → Tumor Mask u₀(x)└──────────────────┘│▼┌───────────────────┐│   PINN Module     │ → Growth Prediction│ ∂u/∂t = D∇²u +    │    (t + 3-6 months)│      ρu(1-u)      │    + Uncertainty└───────────────────┘│▼Visualization Dashboard(3D rendering + heatmaps)
+┌─────────────────────────────────────────────────────────────┐
+│                    ORACLE Pipeline                          │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                   Single MRI Slice Input
+                            │
+                            ▼
+                  ┌──────────────────┐
+                  │ Detection Module │ → Tumor Detected?
+                  │   (ResNet50 +    │
+                  │    Grad-CAM)     │
+                  └──────────────────┘
+                            │
+                            ▼ (Yes)
+                  ┌────────────────────────┐
+                  │ Reconstruction Module  │ → Full 3D Volume
+                  │  (Diffusion Model +    │
+                  │   Positional Encoding) │
+                  └────────────────────────┘
+                            │
+                            ▼
+                  ┌──────────────────┐
+                  │  Segmentation    │ → Tumor Mask u₀(x)
+                  └──────────────────┘
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │   PINN Module     │ → Growth Prediction
+                  │ ∂u/∂t = D∇²u +    │    (t + 3-6 months)
+                  │      ρu(1-u)      │    + Uncertainty
+                  └───────────────────┘
+                            │
+                            ▼
+                 Visualization Dashboard
+                 (3D rendering + heatmaps)
 ```
 
 ### Module Details
