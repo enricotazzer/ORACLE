@@ -76,11 +76,6 @@ This project addresses the critical clinical need for **early intervention plann
                   └────────────────────────┘
                             │
                             ▼
-                  ┌──────────────────┐
-                  │  Segmentation    │ → Tumor Mask u₀(x)
-                  └──────────────────┘
-                            │
-                            ▼
                   ┌───────────────────┐
                   │   PINN Module     │ → Growth Prediction
                   │ ∂u/∂t = D∇²u +    │    (t + 3-6 months)
@@ -96,9 +91,8 @@ This project addresses the critical clinical need for **early intervention plann
 
 | Module | Input | Output | Technology |
 |--------|-------|--------|------------|
-| **Detection** | 2D MRI slice (224×224) | Binary classification + heatmap | Transfer learning (ResNet50/EfficientNet) |
+| **Detection** | 2D MRI slice (224×224) | Detection + Mask | Unet++ |
 | **Reconstruction** | Single slice + position | 3D volume (256×256×N) | Latent diffusion with positional embeddings |
-| **Segmentation** | 3D volume | Tumor density map u(x) | U-Net or from existing masks |
 | **PINN** | u₀(x), time t | Predicted u(t,x) | Physics-informed neural network |
 
 ---
