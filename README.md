@@ -53,7 +53,6 @@ This project addresses the critical clinical need for **early intervention plann
 
 ## 🏗️ Architecture
 
-                â”‚  â€¢ Skip Connections  
 ### Pipeline Overview
 
 ```
