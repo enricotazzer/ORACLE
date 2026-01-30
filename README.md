@@ -19,7 +19,7 @@
 
 ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **detection**, **3D reconstruction**, and **physics-informed growth prediction**. Starting from a single 2D MRI slice, CHRONOS can:
 
-- ✅ Detect tumor presence with >95% accuracy
+- ✅ Segment and localize tumors with pixel-level precision (DICE >0.90)
 - 🔄 Reconstruct full 3D brain volumes
 - 📈 Predict tumor evolution 3-6 months into the future using Physics-Informed Neural Networks (PINNs)
 - 🔍 Provide explainable predictions with Grad-CAM visualizations
@@ -30,11 +30,12 @@ This project addresses the critical clinical need for **early intervention plann
 
 ## ✨ Features
 
-### 🎯 1. Binary Tumor Detection
-- Transfer learning with ResNet50/EfficientNet
-- Grad-CAM activation maps for interpretability
-- Handles tumor vs. no-tumor classification
-- Data augmentation for robustness
+### 🎯 1. Tumor Segmentation & Localization
+- U-Net architecture for pixel-level tumor segmentation
+- Precise tumor boundary delineation with DICE score >0.90
+- Outputs spatial tumor density maps ready for PINN input
+- Visual segmentation masks for clinical interpretability
+- Handles both tumor detection and localization in one step
 
 ### 🧊 2. Single-Slice to 3D Volume Reconstruction
 - Slice-based latent diffusion model with positional encoding
@@ -52,6 +53,10 @@ This project addresses the critical clinical need for **early intervention plann
 
 ## 🏗️ Architecture
 
+Segmentation Module     â”‚ â†’ Tumor Mask uâ‚€(x)
+                â”‚      (U-Net)             â”‚   + Tumor Detection
+                â”‚  â€¢ Encoder-Decoder       â”‚   (Binary: Present/Absent)
+                â”‚  â€¢ Skip Connections  
 ### Pipeline Overview
 
 ```
@@ -62,11 +67,12 @@ This project addresses the critical clinical need for **early intervention plann
                    Single MRI Slice Input
                             │
                             ▼
-                  ┌──────────────────┐
-                  │ Detection Module │ → Tumor Detected?
-                  │   (ResNet50 +    │
-                  │    Grad-CAM)     │
-                  └──────────────────┘
+                  ┌─────────────────────┐
+                  │ Segmentation Module │ → Tumor Detection + Tumor Mask
+                  │   (Unet++)          │
+                  │   Encoder-Decoder   |
+                  |   Skip Connections  |  
+                  └─────────────────────┘
                             │
                             ▼ (Yes)
                   ┌────────────────────────┐
