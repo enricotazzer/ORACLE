@@ -95,6 +95,7 @@ project/
 
 ### **Phase 4: PINN Tumor Growth Prediction** (Week 8-12)
 
+
 #### Step 4.1: Preprocessing for PINN[13][14]
 - Register all MRIs to MNI152 atlas space
 - Convert segmentation masks to tumor density maps
