@@ -9,8 +9,6 @@
 
 **Predicting Tomorrow's Tumors from Today's MRI**
 
-[Features](#-features) • [Architecture](#-architecture) • [Installation](#-installation) • [Usage](#-usage) • [Datasets](#-datasets) • [Results](#-results) • [Roadmap](#-roadmap)
-
 </div>
 
 ---
