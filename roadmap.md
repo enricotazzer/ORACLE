@@ -2,7 +2,7 @@ Here's a comprehensive roadmap for your complete brain tumor analysis project, s
 
 ## Complete Project Roadmap
 
-### **Phase 1: Setup & Data Preparation** (Week 1-2)
+### **Phase 1: Setup & Data Preparation** (Week 1-2) ✅
 
 #### Step 1.1: Environment Setup
 - Install Python 3.9+, PyTorch, MONAI, DeepXDE[1][2]
@@ -14,7 +14,7 @@ pip install deepxde matplotlib scipy SimpleITK
 ```
 
 #### Step 1.2: Dataset Acquisition
-- Download LGG dataset from Kaggle (already done)
+- Download LGG dataset from Kaggle (already done) ✅
 - Download MU-Glioma-Post from TCIA[3][4]
   - Install NBIA Data Retriever
   - Download all 203 patients with segmentations
@@ -39,59 +39,88 @@ project/
 └── scripts/
 ```
 
-### **Phase 2: Binary Tumor Detection Model** (Week 3-4)
+### **Phase 2: Brain Tumor Segmentation** (Week 3-4) ✅ IMPLEMENTED
 
-#### Step 2.1: Preprocessing
-- Resize images to 224×224[5]
-- Normalize pixel values (0-1 or z-score)
-- Apply skull stripping[1]
-- Create train/val/test splits (70/15/15)
+> **Notebook**: `unet_plusplus_brain_tumor_segmentation.ipynb`
 
-#### Step 2.2: Data Augmentation
-- Rotation (±15°), flipping, zoom (0.9-1.1)[6][1]
-- Brightness/contrast adjustment
-- Elastic deformations
+#### Step 2.1: Data Preparation ✅
+- Image size: 256×256, train/val/test split: 70/15/15
+- Input: 4-channel MRI (T1 pre-contrast, FLAIR, T1 post-contrast, T2 approximation)
+- Class imbalance handled: dataset has ~65% empty slices (96:1 imbalance)
 
-#### Step 2.3: Model Training
-- Architecture: ResNet50 or EfficientNet with transfer learning[7][6]
-- Loss: Binary cross-entropy
-- Optimizer: Adam (lr=0.001)
-- Train for 50-100 epochs with early stopping
-- Track accuracy, precision, recall, F1-score
+#### Step 2.2: Data Augmentation ✅
+- **Geometric**: Rotate(±20°), HorizontalFlip, VerticalFlip, ShiftScaleRotate, ElasticTransform(α=1, σ=50)
+- **Intensity**: RandomBrightnessContrast(±20%), GaussNoise, GaussianBlur
+- **Normalization**: mean=0.0, std=1.0 (z-score per modality)
+- **Stratified sampling** (`WeightedRandomSampler`) — aggressive reweighting to counter imbalance:
+  | Class | Pixels | Raw % | Weight | Effective % |
+  |-------|--------|-------|--------|-------------|
+  | Empty | 0 | ~65% | 0.15 | ~8% |
+  | Very small | <50 | ~1% | 3.5 | ~15% |
+  | Small | 50–500 | ~5% | 2.8 | ~30% |
+  | Medium | 500–2000 | ~15% | 1.5 | ~35% |
+  | Large | >2000 | ~14% | 1.0 | ~12% |
 
-#### Step 2.4: Explainability
-- Implement Grad-CAM for heatmaps[6][7]
-- Validate that activations highlight tumor regions
+#### Step 2.3: Model Architecture ✅
+- **Model**: `smp.UnetPlusPlus`
+  - Encoder: EfficientNet-B4 (pretrained ImageNet)
+  - In channels: 4 (all MRI modalities)
+  - Out channels: 1 (binary segmentation)
+  - Decoder attention: scSE (Spatial & Channel Squeeze-Excitation)
+- **Loss**: `OptimalBrainTumorLoss` = 0.7 × DiceCE + 0.3 × Focal
+  - DiceCE: λ_dice=0.6, λ_ce=0.4, sigmoid=True, squared_pred=True
+  - Focal: γ=2.0, α=0.75 (positive class weight)
+- **Optimizer**: AdamW, lr=2e-4, weight_decay=1e-4
+- **Scheduler**: ReduceLROnPlateau(mode='max', factor=0.5, patience=30, min_lr=1e-7)
+- **Batch size**: train=16 (with sampler), val/test=8
+- **Gradient clipping**: max_norm=1.0
 
-**Deliverable**: Working detection model with >95% accuracy
+#### Step 2.4: Inference & Post-Processing ✅
+- **TTA** (Test-Time Augmentation): HorizontalFlip + VerticalFlip + Rotate90(0°/90°/180°/270°), merged with mean — threshold applied *after* averaging
+- **Post-processing pipeline**:
+  1. Morphological opening with 5×5 ellipse kernel (noise removal)
+  2. Morphological closing (gap filling)
+  3. Hole filling (`ndimage.binary_fill_holes`)
+  4. Largest connected component extraction
+- **Metrics**: Dice coefficient, IoU — tracked separately for baseline vs TTA+post-processing
+- **Saved model**: `models/best_unet_plusplus.pth`
 
-### **Phase 3: 3D Volume Reconstruction** (Week 5-7)
+**Deliverable**: ✅ Working segmentation model with Dice and IoU on test set
 
-#### Step 3.1: Prepare Reconstruction Dataset
-- Extract all slices from LGG (20-88 per patient)[8]
-- Extract all slices from MU-Glioma patients
-- Create slice pairs: (input_slice, target_slice, position_encoding)
-- Total: ~10,000+ slice pairs[9]
+### **Phase 3: 3D Volume Reconstruction** (Week 5-7) 🔄 IN PROGRESS
 
-#### Step 3.2: Model Architecture
-- Slice-based latent diffusion model[10][9]
-- Add positional embedder (sinusoidal encoding)[11]
-- U-Net encoder-decoder with residual blocks[11]
-- Conditioning mechanism for slice position
+> **Notebook**: `3d_volume_reconstruction.ipynb`
 
-#### Step 3.3: Training Strategy
-- Train on individual 2D slices with positional info[9]
-- Loss: MSE + perceptual loss (VGG features)
-- Batch size: 16-32, epochs: 100-200
-- Data augmentation: Same as Phase 2
+#### Step 3.1: Prepare Reconstruction Dataset ✅
+- Datasets: LGG (Kaggle) + MU-Glioma-Post
+- Slice pairs: (input_slice, target_slice) with position encoding
+- Image size: 256×256 RGB, patch-based training with 128×128 random crops
+- Augmentation: H-flip, rotation ±10°, brightness/contrast ±10%
 
-#### Step 3.4: Inference Pipeline
-- Input: Single slice + desired positions
-- Generate slices iteratively at different depths
+#### Step 3.2: Model Architecture ✅
+- **Model**: `SwinUNETR` (MONAI, 2D)
+  - `spatial_dims=2`, `in_channels=3`, `out_channels=3`
+  - `feature_size=48`, `use_checkpoint=True` (gradient checkpointing for memory efficiency)
+  - ~30M parameters
+- **Loss**: `SwinPerceptualLoss` = 0.5 × MSE + 0.3 × (1−SSIM) + 0.2 × VGG Perceptual
+  - VGG16 features at layers: conv1_2, conv2_2, conv3_3, conv4_3
+  - All FFT terms cast to float32 to avoid AMP half-precision issues
+
+#### Step 3.3: Training Strategy ✅
+- **Optimizer**: Adam, weight_decay=1e-5
+- **LR schedule**: Linear warm-up 1e-5 → 5e-5 over 5 epochs, then ReduceLROnPlateau(patience=5, factor=0.5)
+- **Batch size**: 16 patches, gradient accumulation ×2 (effective batch = 32)
+- **Mixed precision** (AMP): enabled on CUDA
+- **Early stopping**: patience=15 epochs
+- **Checkpointing**: every 3 epochs + best model by val PSNR
+
+#### Step 3.4: Inference Pipeline 🔄
+- Input: Single 2D RGB slice
+- Generate target slices at different positions
 - Stack to form 3D volume
-- Validate with PSNR, SSIM metrics[12]
+- Validate with PSNR, SSIM metrics
 
-**Deliverable**: Model reconstructing full 3D volumes from single slices
+**Deliverable**: 🔄 Model training in progress — target PSNR >26 dB
 
 ### **Phase 4: PINN Tumor Growth Prediction** (Week 8-12)
 
