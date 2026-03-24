@@ -15,9 +15,9 @@
 
 ## 📋 Overview
 
-ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **detection**, **3D reconstruction**, and **physics-informed growth prediction**. Starting from a single 2D MRI slice, ORACLE can:
+ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **detection**, **3D reconstruction**, and **physics-informed growth prediction**. Using multimodal MRI inputs, ORACLE can:
 
-- ✅ Segment and localize tumors with pixel-level precision (DICE >0.90)
+- ✅ Segment and localize tumors with pixel-level precision using 4 MRI modalities (`t1n`, `t1c`, `t2w`, `t2f`)
 - 🔄 Reconstruct full 3D brain volumes
 - 📈 Predict tumor evolution 3-6 months into the future using Physics-Informed Neural Networks (PINNs)
 - 🔍 Provide explainable predictions with Grad-CAM visualizations
@@ -29,17 +29,19 @@ This project addresses the critical clinical need for **early intervention plann
 ## ✨ Features
 
 ### 🎯 1. Tumor Segmentation & Localization
-- U-Net architecture for pixel-level tumor segmentation
-- Precise tumor boundary delineation with DICE score >0.90
+- UNet++ architecture for pixel-level tumor segmentation (`segmentation_models_pytorch`)
+- 4-channel multimodal MRI input (`t1n`, `t1c`, `t2w`, `t2f`) with binary tumor mask targets
 - Outputs spatial tumor density maps ready for PINN input
 - Visual segmentation masks for clinical interpretability
-- Handles both tumor detection and localization in one step
+- Patient-level train/validation/test split to prevent leakage
 
 ### 🧊 2. Single-Slice to 3D Volume Reconstruction
-- Slice-based latent diffusion model with positional encoding
-- Generates complete 3D MRI volumes from a single 2D slice
+- 5-channel / 5-slice context reconstruction model
+- Inputs: `t1n`, `t1c`, `t2w`, `t2f`, `mask_density` over depth window `[z..z+4]`
+- Target: next non-overlapping slice `t1n[z+5]`
+- Bidirectional autoregressive full-volume inference with forward/backward fusion
 - Preserves anatomical features and tumor morphology
-- PSNR >26 dB reconstruction quality
+- Quantitative quality reported with PSNR/SSIM on held-out evaluation
 
 ### ⏱️ 3. Physics-Informed Tumor Growth Prediction
 - PINN implementation of Fisher-Kolmogorov reaction-diffusion equation
@@ -58,7 +60,7 @@ This project addresses the critical clinical need for **early intervention plann
 │                    ORACLE Pipeline                          │
 └─────────────────────────────────────────────────────────────┘
                             │
-                   Single MRI Slice Input
+                     Multimodal MRI Slice/Context Input
                             │
                             ▼
                   ┌─────────────────────┐
@@ -71,8 +73,8 @@ This project addresses the critical clinical need for **early intervention plann
                             ▼ (Yes)
                   ┌────────────────────────┐
                   │ Reconstruction Module  │ → Full 3D Volume
-                  │  (Diffusion Model +    │
-                  │   Positional Encoding) │
+                  │ (5-ch/5-slice context  │
+                  │ + autoregressive fuse) │
                   └────────────────────────┘
                             │
                             ▼
@@ -91,8 +93,8 @@ This project addresses the critical clinical need for **early intervention plann
 
 | Module | Input | Output | Technology |
 |--------|-------|--------|------------|
-| **Detection** | 2D MRI slice (224×224) | Detection + Mask | Unet++ |
-| **Reconstruction** | Single slice + position | 3D volume (256×256×N) | Latent diffusion with positional embeddings |
+| **Detection** | 4-channel MRI slice (`t1n`,`t1c`,`t2w`,`t2f`) | Detection + Mask | Unet++ (EfficientNet encoder) |
+| **Reconstruction** | 5-channel, 5-slice context window | 3D volume (autoregressive) | Context model + bidirectional fusion |
 | **PINN** | u₀(x), time t | Predicted u(t,x) | Physics-informed neural network |
 
 ---
