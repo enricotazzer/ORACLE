@@ -39,7 +39,7 @@ This project addresses the critical clinical need for **early intervention plann
 - Evaluation: Dice coefficient & IoU at threshold 0.5
 
 <div align="center">
-<img src="assets/predictions.png" width="600" alt="Segmentation predictions — Input MRI, Ground Truth, Prediction, Overlay"/>
+<img src="readme_assets/predictions.png" width="600" alt="Segmentation predictions — Input MRI, Ground Truth, Prediction, Overlay"/>
 <br><em>Segmentation results: Input T1c · Ground Truth · Prediction · Overlay</em>
 </div>
 
@@ -73,7 +73,7 @@ Two-phase training pipeline: a generator-only pretraining stage followed by GAN-
 - Evaluation: PSNR / SSIM on held-out volumes
 
 <div align="center">
-<img src="assets/recon_media_disc/Timepoint_1_A_half_alternating_all5_qual.gif" width="500" alt="GAN reconstruction — slice-by-slice quality comparison"/>
+<img src="readme_assets/recon_gan_quality.gif" width="500" alt="GAN reconstruction — slice-by-slice quality comparison"/>
 <br><em>GAN reconstruction from 50% sparse input (half-alternating, all 5 channels)</em>
 </div>
 
