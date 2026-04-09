@@ -83,7 +83,7 @@ Two-phase training pipeline: a generator-only pretraining stage followed by GAN-
 - Interactive **Plotly** 3D mesh with vertex intensity coloring (grayscale), adjustable ISO level, X-sectioning, rotation/scale/translate controls
 - Exportable mesh data (`assets/recon_media_disc/meshes/`)
 
-> **[Explore the 3D brain mesh interactively](https://enricotazzer.github.io/oracle/brain_mesh_viewer.html)** — rotate, zoom, toggle cross-sections and volume fill directly in your browser.
+> **[Explore the 3D brain mesh interactively](https://enricotazzer.github.io/ORACLE/brain_mesh_viewer.html)** — rotate, zoom, toggle cross-sections and volume fill directly in your browser.
 
 ### ⏱️ 3. Physics-Informed Tumor Growth Prediction *(Planned)*
 
