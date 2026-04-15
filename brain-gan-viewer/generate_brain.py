@@ -332,12 +332,12 @@ def export_slices(volume_norm: np.ndarray,
         # Three.js flipY=true: UV.v=0 → image last row, UV.v=1 → image first row.
         #
         # Required mapping for correct alignment:
-        #   axial:    image cols → world −Z (need fliplr) + image rows → world Y (need flipud) = rot90(2)
+        #   axial:    flip along x axis (horizontal mirror) to correct left-right orientation
         #   coronal:  image cols must become Z_voxels (world X) → transpose;  rows→X_voxels (world −Z) OK
         #   sagittal: image cols must become Z_voxels (world X) → transpose;  rows→Y_voxels (world Y) + flipud
-        if ax == 0:                          # axial: 180° rotation fixes both axes
-            sl    = np.rot90(sl,    2)
-            alpha = np.rot90(alpha, 2)
+        if ax == 0:                          # axial: fliplr only
+            sl    = np.fliplr(sl)
+            alpha = np.fliplr(alpha)
         elif ax == 1:                        # coronal: transpose only
             sl    = np.ascontiguousarray(sl.T)
             alpha = np.ascontiguousarray(alpha.T)
