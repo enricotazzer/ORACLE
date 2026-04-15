@@ -79,11 +79,79 @@ Two-phase training pipeline: a generator-only pretraining stage followed by GAN-
 
 #### 3D Visualization
 
-- **Marching cubes** isosurface extraction from the predicted volume
-- Interactive **Plotly** 3D mesh with vertex intensity coloring (grayscale), adjustable ISO level, X-sectioning, rotation/scale/translate controls
-- Exportable mesh data (`assets/recon_media_disc/meshes/`)
+> **[Explore the interactive 3D brain viewer](https://enricotazzer.github.io/ORACLE/brain-viewer/)** — orbit, zoom, pan, clip through the volume along any anatomical axis, and take screenshots directly in your browser.
 
-> **[Explore the 3D brain mesh interactively](https://enricotazzer.github.io/ORACLE/brain_mesh_viewer.html)** — rotate, zoom, toggle cross-sections and volume fill directly in your browser.
+The GAN-predicted volume is rendered through a full production pipeline (`brain-gan-viewer/`) that converts raw MRI slices into a deployable Three.js web viewer hosted on GitHub Pages.
+
+##### Pipeline overview
+
+```
+GAN MRI slices (PNG)
+        │
+        ▼
+  generate_brain.py
+  ├── Percentile normalisation + Gaussian denoise (σ=0.8)
+  ├── Otsu threshold + morphological closing + hole fill
+  ├── Largest-connected-component brain mask
+  ├── Taubin-smoothed marching cubes → brain_surface.glb
+  │     (vertex colours sampled from MRI intensity, γ=0.75)
+  └── RGBA PNG slice exports (axial / coronal / sagittal)
+        │
+        ▼
+  viewer/  (Three.js static site, no build step)
+  ├── Realistic cortex shell with MRI-intensity vertex colours
+  ├── Clipping plane synchronised to MRI slice texture
+  └── Orbit / zoom / pan / screenshot controls
+        │
+        ▼
+  docs/brain-viewer/  (GitHub Pages)
+```
+
+##### Files
+
+| File | Purpose |
+| ---- | ------- |
+| `brain-gan-viewer/generate_brain.py` | Core preprocessing: normalisation → mask → marching cubes → Taubin smoothing → GLB export → RGBA PNG slices |
+| `brain-gan-viewer/run_pipeline.py` | End-to-end orchestrator: validates inputs, runs `generate_brain.py`, runs `prepare_github_pages.py` |
+| `brain-gan-viewer/prepare_github_pages.py` | Copies `viewer/` to `docs/brain-viewer/`, injects `<base href>` for sub-path routing, verifies all assets |
+| `brain-gan-viewer/viewer/app.js` | Three.js application: GLB loader, clipping plane logic, slice quad texture, orbit controls, screenshot |
+| `brain-gan-viewer/viewer/index.html` | Static HTML shell with Three.js importmap (CDN, no build step) and control panel UI |
+| `brain-gan-viewer/viewer/style.css` | Dark-mode UI styles |
+
+##### How to run it yourself
+
+```bash
+# 1 — install dependencies
+cd brain-gan-viewer
+pip install -r requirements.txt
+
+# 2 — place GAN slices in data/gan_slices/slice_000.png … slice_NNN.png
+
+# 3 — run the full pipeline
+python run_pipeline.py \
+  --input_dir  ./data/gan_slices \
+  --axis       axial \
+  --pixel_spacing   1.0 \
+  --slice_thickness 1.0 \
+  --github_pages_subpath /ORACLE/brain-viewer/
+
+# 4 — preview locally
+cd docs/brain-viewer
+python -m http.server 8080
+# open http://localhost:8080
+
+# 5 — commit docs/brain-viewer/ and push to enable GitHub Pages
+```
+
+Key preprocessing parameters:
+
+| Flag | Default | Effect |
+| ---- | ------- | ------ |
+| `--smooth_sigma` | 0.8 | Gaussian σ on volume (suppresses GAN checkerboard artefacts) |
+| `--field_sigma` | 1.5 | Gaussian σ on mask field before marching cubes (smooth iso-surface) |
+| `--taubin_iter` | 25 | Taubin smoothing iterations (volume-preserving cortex smoothing) |
+| `--decimate_fraction` | 0.85 | Face reduction after marching cubes (smaller GLB) |
+| `--max_slices` | 128 | Slice PNGs exported per axis (reduce to lower repo size) |
 
 ### ⏱️ 3. Physics-Informed Tumor Growth Prediction *(Planned)*
 
