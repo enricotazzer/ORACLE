@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Brain Viewer — GAN MRI</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── THREE.JS canvas ── -->
+<div id="canvas-container"></div>
+
+<!-- ── Loading overlay ── -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-label">Loading brain model…</div>
+  <div class="loading-sub" id="loading-sub">Initialising renderer</div>
+</div>
+
+<!-- ── Error overlay ── -->
+<div id="error-overlay">
+  <div class="error-icon">⚠</div>
+  <div class="error-title">Assets not found</div>
+  <div class="error-body" id="error-body">
+    Run <code>python run_pipeline.py</code> first to generate the mesh and slice assets,
+    then serve this folder with a local HTTP server.
+  </div>
+</div>
+
+<!-- ── Control panel ── -->
+<div id="panel">
+  <div class="panel-title">3D Brain Viewer</div>
+
+  <!-- Axis -->
+  <div class="control-group">
+    <div class="control-label">Clip axis</div>
+    <div class="axis-toggle">
+      <button class="axis-btn active" data-axis="axial">Axial</button>
+      <button class="axis-btn"        data-axis="coronal">Coronal</button>
+      <button class="axis-btn"        data-axis="sagittal">Sagittal</button>
+    </div>
+  </div>
+
+  <!-- Slice / Clip position -->
+  <div class="control-group">
+    <div class="control-label">
+      Clip position
+      <span class="control-value" id="clip-val">50%</span>
+    </div>
+    <input type="range" id="clip-slider" min="0" max="100" value="100" step="1" />
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Shell opacity -->
+  <div class="control-group">
+    <div class="control-label">
+      Shell opacity
+      <span class="control-value" id="opacity-val">100%</span>
+    </div>
+    <input type="range" id="opacity-slider" min="10" max="100" value="100" step="1" />
+  </div>
+
+  <!-- Contrast -->
+  <div class="control-group">
+    <div class="control-label">
+      MRI contrast
+      <span class="control-value" id="contrast-val">1.0</span>
+    </div>
+    <input type="range" id="contrast-slider" min="0.5" max="3.0" value="1.0" step="0.05" />
+  </div>
+
+  <!-- Brightness -->
+  <div class="control-group">
+    <div class="control-label">
+      MRI brightness
+      <span class="control-value" id="brightness-val">1.0</span>
+    </div>
+    <input type="range" id="brightness-slider" min="0.5" max="2.0" value="1.0" step="0.05" />
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Auto-rotate -->
+  <div class="toggle-row">
+    Auto-rotate
+    <label class="toggle-switch">
+      <input type="checkbox" id="autorotate-toggle" />
+      <div class="toggle-track"></div>
+    </label>
+  </div>
+
+  <!-- Buttons -->
+  <div class="btn-row">
+    <button class="btn" id="reset-btn">Reset view</button>
+    <button class="btn" id="screenshot-btn">Screenshot</button>
+  </div>
+</div>
+
+<!-- ── Info strip ── -->
+<div id="info-strip">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
+
+<!-- ── Three.js (CDN, no build step) ── -->
+<script type="importmap">
+{
+  "imports": {
+    "three":                    "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/":            "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

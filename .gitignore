@@ -4,3 +4,6 @@
 /assets
 /old_approaches
 /PKG-MU-Glioma-partial
+/brain-gan-viewer/data/gan_slices
+brain-gan-viewer/viewer/
+/brain-gan-viewer/docs
