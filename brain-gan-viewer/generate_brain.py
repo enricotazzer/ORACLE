@@ -332,18 +332,19 @@ def export_slices(volume_norm: np.ndarray,
         # Three.js flipY=true: UV.v=0 → image last row, UV.v=1 → image first row.
         #
         # Required mapping for correct alignment:
-        #   axial:    flip along x axis (horizontal mirror) to correct left-right orientation
-        #   coronal:  image cols must become Z_voxels (world X) → transpose;  rows→X_voxels (world −Z) OK
-        #   sagittal: image cols must become Z_voxels (world X) → transpose;  rows→Y_voxels (world Y) + flipud
-        if ax == 0:                          # axial: fliplr only
-            sl    = np.fliplr(sl)
-            alpha = np.fliplr(alpha)
+        #   axial:    rot90(2) — pre-compensates viewer's implicit 180° (flipY + UV-horizontal-inversion)
+        #   coronal:  T only   — transpose maps Z→cols, X→rows; row 0 = small-X = correct
+        #                          (rotation.x=−π/2 + flipY: row 0 → UV.v=1 → local+Y → world-Z=x0·dx = small W_voxel ✓)
+        #   sagittal: T only   — transpose maps Z→cols, Y→rows; row 0 already = small-Y = correct for flipY
+        if ax == 0:                          # axial: 180° rotation
+            sl    = np.rot90(sl,    2)
+            alpha = np.rot90(alpha, 2)
         elif ax == 1:                        # coronal: transpose only
             sl    = np.ascontiguousarray(sl.T)
             alpha = np.ascontiguousarray(alpha.T)
-        else:                                # sagittal: transpose then flipud
-            sl    = np.flipud(sl.T)
-            alpha = np.flipud(alpha.T)
+        else:                                # sagittal: transpose only (no flipud — row 0 already maps to small-Y voxel)
+            sl    = np.ascontiguousarray(sl.T)
+            alpha = np.ascontiguousarray(alpha.T)
 
         # RGBA PNG — background pixels are fully transparent
         rgba = np.stack([sl, sl, sl, alpha], axis=-1)

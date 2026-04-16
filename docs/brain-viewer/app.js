@@ -320,22 +320,6 @@ function loadBrainGLB() {
             clippingPlanes: [clipPlane],
             clipShadows:    true,
           });
-
-          // Mirror the mesh along Three.js Z (= W_voxel axis) to match the
-          // fliplr applied to axial slice exports.
-          // Flip about the geometry's own Z centre so the position is unchanged.
-          child.geometry.computeBoundingBox();
-          const bz = child.geometry.boundingBox;
-          const cz = (bz.min.z + bz.max.z) / 2;
-          child.geometry.applyMatrix4(new THREE.Matrix4().set(
-            1, 0,  0,      0,
-            0, 1,  0,      0,
-            0, 0, -1, 2 * cz,
-            0, 0,  0,      1
-          ));
-          child.geometry.computeVertexNormals();
-          child.geometry.computeBoundingBox();
-          child.geometry.computeBoundingSphere();
         });
         resolve(gltf.scene);
       },

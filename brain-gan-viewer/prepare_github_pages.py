@@ -58,12 +58,12 @@ def verify_assets(deploy_dst: Path) -> bool:
             ok = False
 
     slices_dir = deploy_dst / "assets" / "slices"
-    n_slices = len(list(slices_dir.glob("slice_*.jpg"))) if slices_dir.exists() else 0
+    n_slices = len(list(slices_dir.glob("**/*.png"))) if slices_dir.exists() else 0
     if n_slices == 0:
-        print("  [!!]  No slice JPGs found in assets/slices/")
+        print("  [!!]  No slice PNGs found in assets/slices/")
         ok = False
     else:
-        print(f"  [ok]  {n_slices} slice JPGs present")
+        print(f"  [ok]  {n_slices} slice PNGs present")
 
     return ok
 
