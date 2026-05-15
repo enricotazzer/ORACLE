@@ -19,7 +19,7 @@ ORACLE is an end-to-end deep learning framework for brain tumor analysis that co
 
 - ✅ Segment and localize tumors with pixel-level precision using 4 MRI modalities (`t1n`, `t1c`, `t2w`, `t2f`)
 - 🔄 Reconstruct full 3D brain volumes from sparse slice observations via GAN-based generation
-- 📈 *(Planned)* Predict tumor evolution using Physics-Informed Neural Networks (PINNs)
+- 📈 Predict tumor evolution and recover patient-specific growth parameters using Physics-Informed Neural Networks (PINNs)
 
 This project addresses the critical clinical need for **early intervention planning** by providing accurate 3D reconstructions and segmentation maps from sparse clinical MRI acquisitions.
 
@@ -29,14 +29,23 @@ This project addresses the critical clinical need for **early intervention plann
 
 ### 🎯 1. Tumor Segmentation (`unet_plusplus_brain_tumor_segmentation.ipynb`)
 
-- **UNet++** with **EfficientNet-B4** encoder and **SCSE** (Spatial & Channel Squeeze-Excitation) attention in the decoder (`segmentation_models_pytorch`)
+- **Custom nnU-Net 2D** — compact encoder–decoder (~0.7M params, ~30× lighter than the previous UNet++ EfficientNet-B4) following nnU-Net design principles:
+  - **GroupNorm + LeakyReLU** (numerically stable on small batches and near-empty MRI slices)
+  - Strided convolutions for learned downsampling, transposed convolutions for upsampling
+  - **Deep supervision** from decoder stages (loss weights 1.0 / 0.5 / 0.25)
+  - **Full-path Dropout2d** (encoder + bottleneck + decoder) for regularization
 - 4-channel multimodal MRI input (`t1n`, `t1c`, `t2w`, `t2f`) → binary tumor mask output
-- Hybrid loss: **70% DiceCE** (λ_dice=0.6, λ_ce=0.4) + **30% Focal** (γ=2.0, α=0.75)
-- Weighted stratified sampling to handle class imbalance (upweights small/medium tumors)
-- Patient-level 70/15/15 train/val/test split (no patient leakage)
-- Morphological post-processing (opening + closing with 5×5 elliptical kernel)
+- Hybrid loss: **70% DiceCE** (λ_dice=0.6, λ_ce=0.4) + **30% Focal** (γ=2.0, α=0.75) + **empty-slice false-positive penalty** (applied to the full-resolution head only)
+- **EMA** of weights (decay=0.999) — the deployed model is the weight moving average, not the final SGD step
+- Optimizer: **AdamW** (lr=1e-4, weight_decay=1e-3) with **CosineAnnealingWarmRestarts** (T₀=20, T_mult=2)
+- Empty-mask slice subsampling (all tumor slices + 40% of empty slices) to counter the blank-mask majority
+- Heavy augmentation: flips, rotation, shift-scale-rotate, elastic + grid distortion, brightness/contrast, gamma, Gaussian noise/blur, coarse dropout
+- Patient-level train/val/test split using **all timepoints per patient** (no patient leakage)
+- **Deployment-matched validation**: model selection uses EMA + TTA + post-processing, not raw single-pass Dice
+- **Snapshot ensembling**: EMA weights saved at each cosine restart, predictions averaged at inference
+- Post-processing: morphological opening + closing (5×5 elliptical), hole fill, largest-connected-component selection
 - Test-Time Augmentation (TTA): horizontal/vertical flips + 90°/180°/270° rotations
-- Evaluation: Dice coefficient & IoU at threshold 0.5
+- Evaluation: Dice coefficient & IoU at threshold 0.5 — **test ≈ 0.84 Dice / 0.80 IoU** (single-fold, EMA + TTA + post-processing)
 
 <div align="center">
 <img src="readme_assets/predictions.png" width="600" alt="Segmentation predictions — Input MRI, Ground Truth, Prediction, Overlay"/>
@@ -153,13 +162,24 @@ Key preprocessing parameters:
 | `--decimate_fraction` | 0.85 | Face reduction after marching cubes (smaller GLB) |
 | `--max_slices` | 128 | Slice PNGs exported per axis (reduce to lower repo size) |
 
-### ⏱️ 3. Physics-Informed Tumor Growth Prediction *(Planned)*
+### ⏱️ 3. Physics-Informed Tumor Growth Prediction (`pinn_tumor_growth.ipynb`)
 
-> **Status: not yet implemented** — this module is planned for a future iteration.
+Inverse-problem PINN that recovers patient-specific growth parameters from sparse tumor-density observations and forward-predicts tumor evolution, on the **BraTS 2024** dataset (with a finite-difference synthetic fallback when the dataset is unavailable).
 
-- PINN implementation of Fisher-Kolmogorov reaction-diffusion equation
-- Patient-specific parameter estimation (diffusion D, proliferation ρ)
-- Forward prediction with uncertainty quantification
+- **Governing PDE**: heterogeneous Fisher–Kolmogorov reaction–diffusion `uₜ = ∇·(D(x)∇u) + ρ·u(1−u)`, with **tissue-dependent diffusion** — separate `D_wm` (white matter) / `D_gm` (gray matter) selected by a segmentation-derived, double-backward-safe bilinearly-sampled mask
+- **Network**: Fourier-feature embedding of `(x, y, t)` → 6 × `TanhSlopeLinear` (learnable per-layer activation slope α, width 128) → sigmoid head (output bounded to `u ∈ [0,1]` by construction)
+- **Inverse parameters** estimated in log-space: `D_wm`, `D_gm`, `ρ`, with log-Gaussian priors
+- **Composite loss**: PDE residual + initial condition (Gaussian seed) + zero-flux Neumann BC + data + log-prior, with **gradient-norm adaptive weighting** clamped to `[init/4, init×4]` so no term collapses or dominates
+- **Collocation**: Latin-Hypercube sampling + **Residual-based Adaptive Refinement (RAR)** + a **time-horizon curriculum** (short horizons first, grown geometrically)
+- **Three-phase training**: (1) network-only warm-up with physics frozen → (2) joint Adam with cosine warm restarts (physics LR 50× the network LR, network-only gradient clipping so the 3 physics scalars keep full signal) → (3) L-BFGS strong-Wolfe fine-tune
+- **Uncertainty quantification** — three independent estimators:
+  - **MC-Dropout** (stochastic forward passes at inference)
+  - **Deep Ensemble** (K independently-seeded PINNs)
+  - **Laplace posterior** on `(D_wm, D_gm, ρ)` — Hessian of the data + log-prior likelihood, regularized with the **prior precision** so credible intervals stay principled and bounded by the prior
+- **Evaluation**: parameter recovery vs. synthetic ground truth, held-out observation R²/MSE, field metrics at the prediction horizon (L2 relative error, DICE, Hausdorff, mean PDE residual), and UQ calibration (95% coverage, CI width)
+- **Checkpointing**: trained primary PINN + full deep ensemble + config + recovered parameters saved to a single `.pt`, with a self-contained `load_pinn()` reload helper
+
+> **Status: actively in development** — the pipeline runs end-to-end; parameter-recovery accuracy and UQ calibration are still being tuned.
 
 ---
 
@@ -178,8 +198,8 @@ Key preprocessing parameters:
                             ▼
                   ┌─────────────────────┐
                   │ Segmentation Module │ → Binary Tumor Mask
-                  │  UNet++ (EffNet-B4) │
-                  │  + SCSE Attention   │
+                  │  nnU-Net 2D (0.7M)  │
+                  │  + Deep Supervision │
                   └─────────────────────┘
                             │
                             ▼
@@ -193,7 +213,7 @@ Key preprocessing parameters:
                             ▼
                   ┌───────────────────┐
                   │   PINN Module     │ → Growth Prediction
-                  │  (planned)        │    (t + 3–6 months)
+                  │ Fisher–KPP + UQ   │    (forward in time)
                   └───────────────────┘
                             │
                             ▼
@@ -205,8 +225,8 @@ Key preprocessing parameters:
 
 | Module | Input | Output | Technology |
 |--------|-------|--------|------------|
-| **Segmentation** | 4-ch MRI slice (`t1n`,`t1c`,`t2w`,`t2f`) | Binary tumor mask | UNet++ (EfficientNet-B4 + SCSE) |
+| **Segmentation** | 4-ch MRI slice (`t1n`,`t1c`,`t2w`,`t2f`) | Binary tumor mask | nnU-Net 2D (GroupNorm, deep supervision) + EMA + TTA + snapshot ensemble |
 | **Reconstruction** | 5-ch, 5-slice context window | 3D volume (autoregressive) | Fast2p5D + VolumeDiscriminator (GAN) |
-| **PINN** *(planned)* | u₀(x), time t | Predicted u(t,x) | Physics-informed neural network |
+| **PINN** | Sparse tumor-density obs `u(x,y,t)` | Recovered `D_wm/D_gm/ρ` + predicted `u(x,y,t)` + UQ | Inverse Fisher–KPP PINN (Fourier features, RAR, MC-Dropout / Ensemble / Laplace) |
 
 ---
