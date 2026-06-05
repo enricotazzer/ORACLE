@@ -230,3 +230,61 @@ Inverse-problem PINN that recovers patient-specific growth parameters from spars
 | **PINN** | Sparse tumor-density obs `u(x,y,t)` | Recovered `D_wm/D_gm/ρ` + predicted `u(x,y,t)` + UQ | Inverse Fisher–KPP PINN (Fourier features, RAR, MC-Dropout / Ensemble / Laplace) |
 
 ---
+
+## 🔄 End-to-End Pipeline — Predictive Tumor Evolution (`full_pipeline_testing.ipynb`)
+
+A single notebook chains **all three trained models into a closed predictive loop** on one
+patient timepoint (`PatientID_0003/Timepoint_1`, the first folder of the nnU-Net MU-Glioma
+dataset). It loads the checkpoints (`best_nnunet2d.pth`, `G_joint_epoch_022.pth`,
+`pinn_tumor_growth.pt`) and runs **detect → reconstruct → recover-dynamics → evolve →
+re-detect → re-reconstruct**:
+
+```
+        4-modality MRI (t1n, t1c, t2w, t2f)
+                        │
+   ┌────────────────────▼─────────────────────┐
+   │ 1 · Segmentation — nnU-Net 2D             │  EMA weights + 16-aug TTA
+   │     (deep supervision)                    │  + morphological post-processing
+   └────────────────────┬─────────────────────┘  → tumor mask
+                        │ (mask conditions the GAN)
+   ┌────────────────────▼─────────────────────┐
+   │ 2 · Reconstruction — Fast2p5D GAN         │  sparse anchors → dense volume
+   │     bidirectional · multi-scale · TTA     │  (median + Gaussian + unsharp)
+   └────────────────────┬─────────────────────┘  → initial volume
+                        │
+   ┌────────────────────▼─────────────────────┐
+   │ 3 · Growth — Inverse Fisher–KPP PINN      │  recover patient-specific
+   │                                           │  D_wm / D_gm / ρ
+   └────────────────────┬─────────────────────┘
+                        │ (recovered dynamics)
+   ┌────────────────────▼─────────────────────┐
+   │ 4 · Evolution (closed loop)               │  anatomy-aware Fisher–KPP PDE
+   │   • forward-evolve the DETECTED tumor     │  ∇·(D(x)∇u)+ρ·u(1−u), slice-by-slice
+   │   • composite back into all 4 modalities  │  necrotic core / enhancing rim / edema
+   │   • nnU-Net re-segments the evolved slices │
+   │   • GAN re-reconstructs the evolved volume │
+   └────────────────────┬─────────────────────┘
+                        ▼
+        initial volume   vs   predicted future volume
+```
+
+**Stage 4 closes the loop**: the PINN-recovered dynamics drive a forward, anatomy-aware
+reaction–diffusion PDE (high diffusion in white matter, ~0 in CSF/ventricles, no-flux brain
+boundary, optional contralateral barrier) that grows the *detected* tumor over a chosen
+horizon. The evolved tumor is composited back into the MRI with a heterogeneous appearance
+(necrotic core, enhancing rim, edema halo), **re-segmented** by nnU-Net, and
+**re-reconstructed** by the GAN — yielding a side-by-side comparison of the patient's current
+brain vs its predicted future, plus tumor-volume (mL), equivalent-diameter, and growth-ratio
+readouts. All growth knobs live in a single `GROWTH_CFG` (`rho_scale`, `D_scale`,
+`horizon_days`, …); set the scales to `1.0` for the physically faithful (subtle) regime.
+
+### Qualitative Result
+
+<div align="center">
+<img src="readme_assets/full_pipeline_initial_vs_evolved.gif" width="760" alt="ORACLE full-pipeline output — initial reconstruction, predicted evolution, and growth overlay"/>
+<br><em><b>Left:</b> initial GAN reconstruction · <b>Middle:</b> predicted evolution (+180 d) ·
+<b>Right:</b> growth overlay — cyan = current tumor, red = predicted new growth.
+Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
+</div>
+
+---
