@@ -82,6 +82,41 @@ This:
 
 ---
 
+## Multiple volumes — Initial vs Evolved (PINN) toggle
+
+The viewer can hold **several volumes** and switch between them with a **`Volume`** toggle
+in the control panel — used by ORACLE to compare the patient's **current** reconstruction
+against its **PINN-predicted future** (see `full_pipeline_testing.ipynb`, which exports both
+slice stacks).
+
+Build each volume with `--variant` (and an optional `--variant_label` for the toggle button).
+Each variant is written to `viewer/assets/<variant>/` and registered in
+`viewer/assets/manifest.json`:
+
+```bash
+# 1 — current/initial reconstruction
+python generate_brain.py --input_dir ./data/gan_slices_initial \
+  --variant initial  --variant_label "Initial"
+
+# 2 — PINN-evolved reconstruction
+python generate_brain.py --input_dir ./data/gan_slices_evolved \
+  --variant evolved  --variant_label "Evolved +180d"
+
+# 3 — publish (copies all variants + manifest.json)
+python prepare_github_pages.py --viewer_src viewer --deploy_dst docs/brain-viewer
+```
+
+In the viewer, the **`Volume`** toggle (top of the panel) hot-swaps the mesh + MRI slices
+**from the same camera and clip position**, so the growth is directly comparable. Switching
+is instant after first load (textures are cached per variant). The toggle is hidden when only
+one volume is present, and the legacy single-volume layout (`assets/` with no `manifest.json`)
+still works unchanged.
+
+> `manifest.json` format: `{"variants":[{"id","label","dir"}], "default":"initial"}`.
+> The first/`initial` variant loads by default; later variants are tinted red in the toggle.
+
+---
+
 ## Run locally
 
 ```bash

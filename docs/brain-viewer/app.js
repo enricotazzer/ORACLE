@@ -54,6 +54,8 @@ const autoRotateToggle= document.getElementById('autorotate-toggle');
 const resetBtn        = document.getElementById('reset-btn');
 const screenshotBtn   = document.getElementById('screenshot-btn');
 const axisBtns        = document.querySelectorAll('.axis-btn');
+const variantGroup    = document.getElementById('variant-group');
+const variantToggle   = document.getElementById('variant-toggle');
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -113,7 +115,14 @@ const state = {
   autoRotate: false,
   meta:       null,
   brainBox:   null,
+  variants:   [{ id: 'default', label: 'Brain', base: 'assets/' }],
+  variant:    0,            // index into state.variants (the active volume)
+  firstLoad:  true,
 };
+
+// Asset base for the active variant (e.g. 'assets/initial/' or legacy 'assets/').
+function vbase() { return state.variants[state.variant].base; }
+function vid()   { return state.variants[state.variant].id; }
 
 let brainGroup = null;    // THREE.Group from GLTFLoader
 let sliceQuad  = null;    // PlaneGeometry quad showing MRI at cut position
@@ -148,26 +157,27 @@ function getSliceCount(axis) {
 
 // ── Texture loader with per-axis path ─────────────────────────────────────────
 function loadSliceTex(axis, idx) {
-  const key = `${axis}_${idx}`;
+  const base = vbase();
+  const key = `${vid()}_${axis}_${idx}`;   // variant-scoped so volumes don't collide
   if (texCache[key]) return Promise.resolve(texCache[key]);
 
   return new Promise((resolve) => {
     const padded = String(idx).padStart(3, '0');
     // Primary: RGBA PNG with transparent background (new format)
     texLoader.load(
-      asset(`assets/slices/${axis}/slice_${padded}.png`),
+      asset(`${base}slices/${axis}/slice_${padded}.png`),
       (tex) => { tex.colorSpace = THREE.SRGBColorSpace; texCache[key] = tex; resolve(tex); },
       undefined,
       () => {
         // Fallback A: legacy flat-directory PNG
         texLoader.load(
-          asset(`assets/slices/slice_${padded}.png`),
+          asset(`${base}slices/slice_${padded}.png`),
           (tex) => { tex.colorSpace = THREE.SRGBColorSpace; texCache[key] = tex; resolve(tex); },
           undefined,
           () => {
             // Fallback B: legacy JPG (opaque)
             texLoader.load(
-              asset(`assets/slices/${axis}/slice_${padded}.jpg`),
+              asset(`${base}slices/${axis}/slice_${padded}.jpg`),
               (tex) => { tex.colorSpace = THREE.SRGBColorSpace; texCache[key] = tex; resolve(tex); },
               undefined,
               () => resolve(null)
@@ -292,7 +302,7 @@ async function updateScene() {
 // ── Load volume metadata ──────────────────────────────────────────────────────
 async function loadMeta() {
   setLoadingMsg('Loading metadata…');
-  const resp = await fetch(asset('assets/volume_meta.json'));
+  const resp = await fetch(asset(vbase() + 'volume_meta.json'));
   if (!resp.ok) throw new Error(`volume_meta.json returned HTTP ${resp.status}`);
   return resp.json();
 }
@@ -302,7 +312,7 @@ function loadBrainGLB() {
   return new Promise((resolve, reject) => {
     setLoadingMsg('Loading brain mesh…');
     new GLTFLoader().load(
-      asset('assets/brain_surface.glb'),
+      asset(vbase() + 'brain_surface.glb'),
       (gltf) => {
         gltf.scene.traverse((child) => {
           if (!child.isMesh) return;
@@ -343,38 +353,103 @@ function fitCamera(box) {
   controls.update();
 }
 
-// ── Initialise ────────────────────────────────────────────────────────────────
-async function init() {
+// ── Variant manifest (initial / evolved / …) ──────────────────────────────────
+async function loadManifest() {
+  // Optional: assets/manifest.json lists the available volumes. If absent, the
+  // viewer falls back to the legacy single flat assets/ layout.
   try {
-    state.meta = await loadMeta();
+    const resp = await fetch(asset('assets/manifest.json'));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (Array.isArray(data.variants) && data.variants.length) {
+      state.variants = data.variants.map(v => ({
+        id: v.id, label: v.label || v.id, base: `assets/${v.dir || v.id}/`,
+      }));
+      const di = state.variants.findIndex(v => v.id === data.default);
+      state.variant = di >= 0 ? di : 0;
+    }
+  } catch (_) { /* keep flat-layout default */ }
+}
 
-    // Honour the axis that was used during preprocessing
-    const primaryAxis = state.meta?.volume?.primary_axis
-                     || state.meta?.volume?.axis;       // legacy key
+function buildVariantUI() {
+  if (!variantToggle || !variantGroup) return;
+  if (state.variants.length < 2) return;       // nothing to toggle
+  variantGroup.style.display = '';
+  variantToggle.innerHTML = '';
+  state.variants.forEach((v, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'variant-btn' + (i === state.variant ? ' active' : '');
+    btn.textContent = v.label;
+    btn.dataset.idx = String(i);
+    btn.addEventListener('click', () => switchVariant(i));
+    variantToggle.appendChild(btn);
+  });
+}
+
+function disposeBrain() {
+  if (!brainGroup) return;
+  scene.remove(brainGroup);
+  brainGroup.traverse((c) => {
+    if (!c.isMesh) return;
+    c.geometry.dispose();
+    if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+    else c.material.dispose();
+  });
+  brainGroup = null;
+}
+
+// Load (or hot-swap to) a variant. keepView=true preserves camera + clip so the
+// initial and evolved volumes can be compared from the exact same viewpoint.
+async function loadVariant(index, keepView) {
+  state.variant = index;
+  state.meta = await loadMeta();
+
+  // On the very first load honour the axis used during preprocessing
+  if (!keepView) {
+    const primaryAxis = state.meta?.volume?.primary_axis || state.meta?.volume?.axis;
     if (primaryAxis && AXIS_CFG[primaryAxis]) {
       state.axis = primaryAxis;
       axisBtns.forEach(b => b.classList.toggle('active', b.dataset.axis === state.axis));
     }
+  }
 
-    brainGroup = await loadBrainGLB();
-    scene.add(brainGroup);
+  disposeBrain();
+  brainGroup = await loadBrainGLB();
+  scene.add(brainGroup);
 
-    const box = new THREE.Box3().setFromObject(brainGroup);
-    state.brainBox = box;
-    fitCamera(box);
-    rebuildSliceQuad(box, state.axis);
+  const box = new THREE.Box3().setFromObject(brainGroup);
+  state.brainBox = box;
+  if (!keepView) fitCamera(box);
+  rebuildSliceQuad(box, state.axis);
 
-    // Warm the texture cache for the first few slices
-    setLoadingMsg('Preloading textures…');
-    const nPre = Math.min(6, getSliceCount(state.axis));
-    await Promise.all(
-      Array.from({ length: nPre }, (_, i) => loadSliceTex(state.axis, i))
-    );
+  setLoadingMsg('Preloading textures…');
+  const nPre = Math.min(6, getSliceCount(state.axis));
+  await Promise.all(Array.from({ length: nPre }, (_, i) => loadSliceTex(state.axis, i)));
 
+  await updateScene();
+}
+
+async function switchVariant(index) {
+  if (index === state.variant || !state.variants[index]) return;
+  variantToggle.querySelectorAll('.variant-btn').forEach((b, i) =>
+    b.classList.toggle('active', i === index));
+  try {
+    await loadVariant(index, /* keepView */ true);   // compare from the same viewpoint
+  } catch (err) {
+    console.error('[brain-viewer] variant switch failed', err);
+    showError(`Could not load "${state.variants[index].label}": ${err.message}`);
+  }
+}
+
+// ── Initialise ────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await loadManifest();
+    buildVariantUI();
+    await loadVariant(state.variant, /* keepView */ false);
+    state.firstLoad = false;
     hideLoading();
-    await updateScene();
     animate();
-
   } catch (err) {
     console.error('[brain-viewer]', err);
     showError(

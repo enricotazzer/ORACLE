@@ -43,27 +43,36 @@ def rewrite_base_path(index_html: Path, base_path: str) -> None:
 
 def verify_assets(deploy_dst: Path) -> bool:
     ok = True
-    required = [
-        deploy_dst / "index.html",
-        deploy_dst / "app.js",
-        deploy_dst / "style.css",
-        deploy_dst / "assets" / "brain_surface.glb",
-        deploy_dst / "assets" / "volume_meta.json",
-    ]
-    for path in required:
+    for path in (deploy_dst / "index.html", deploy_dst / "app.js", deploy_dst / "style.css"):
         if path.exists():
             print(f"  [ok]  {path.relative_to(deploy_dst)}")
         else:
             print(f"  [!!]  MISSING: {path.relative_to(deploy_dst)}")
             ok = False
 
-    slices_dir = deploy_dst / "assets" / "slices"
-    n_slices = len(list(slices_dir.glob("**/*.png"))) if slices_dir.exists() else 0
-    if n_slices == 0:
-        print("  [!!]  No slice PNGs found in assets/slices/")
-        ok = False
+    assets = deploy_dst / "assets"
+    manifest = assets / "manifest.json"
+    # Variant layout (assets/<variant>/…) when a manifest is present; else legacy flat layout.
+    if manifest.exists():
+        try:
+            variants = json.loads(manifest.read_text()).get("variants", [])
+        except Exception:
+            variants = []
+        roots = [assets / v["dir"] for v in variants] or [assets]
+        print(f"  [ok]  manifest.json ({len(roots)} variant(s): "
+              f"{', '.join(v['id'] for v in variants)})")
     else:
-        print(f"  [ok]  {n_slices} slice PNGs present")
+        roots = [assets]
+
+    for root in roots:
+        tag = root.name if root != assets else "assets"
+        for name in ("brain_surface.glb", "volume_meta.json"):
+            p = root / name
+            print(f"  [{'ok' if p.exists() else '!!'}]  {tag}/{name}")
+            ok = ok and p.exists()
+        n = len(list((root / "slices").glob("**/*.png"))) if (root / "slices").exists() else 0
+        print(f"  [{'ok' if n else '!!'}]  {tag}: {n} slice PNGs")
+        ok = ok and n > 0
 
     return ok
 

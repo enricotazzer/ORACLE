@@ -180,6 +180,38 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
   font-weight: 600;
 }
 
+/* Volume variant toggle (initial vs evolved) */
+.variant-toggle {
+  display: flex;
+  gap: 6px;
+}
+.variant-btn {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.variant-btn:hover { border-color: var(--accent); color: var(--accent); }
+.variant-btn.active {
+  background: rgba(74,158,255,0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* tint the evolved option (any variant after the first) */
+.variant-btn:not(:first-child).active {
+  background: rgba(255,90,90,0.18);
+  border-color: #ff6a6a;
+  color: #ff8a8a;
+}
+
 /* Toggle switch */
 .toggle-row {
   display: flex;

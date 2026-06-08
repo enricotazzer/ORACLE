@@ -1,0 +1,15 @@
+{
+  "variants": [
+    {
+      "id": "initial",
+      "label": "Initial",
+      "dir": "initial"
+    },
+    {
+      "id": "evolved",
+      "label": "Evolved +180d",
+      "dir": "evolved"
+    }
+  ],
+  "default": "initial"
+}

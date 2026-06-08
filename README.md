@@ -92,6 +92,8 @@ Two-phase training pipeline: a generator-only pretraining stage followed by GAN-
 
 The GAN-predicted volume is rendered through a full production pipeline (`brain-gan-viewer/`) that converts raw MRI slices into a deployable Three.js web viewer hosted on GitHub Pages.
 
+The viewer also supports a **`Volume` toggle** — switch between the patient's **current** reconstruction and its **PINN-predicted future** (the Stage-4 evolved volume) from the *same* camera and clip position, for a direct 3D before/after comparison. `full_pipeline_testing.ipynb` exports both slice stacks; `generate_brain.py --variant initial|evolved` builds them (see [`brain-gan-viewer/README.md`](brain-gan-viewer/README.md#multiple-volumes--initial-vs-evolved-pinn-toggle)).
+
 ##### Pipeline overview
 
 ```

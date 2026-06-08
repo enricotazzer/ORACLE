@@ -498,9 +498,33 @@ def save_previews(volume_norm: np.ndarray,
 
 # ─────────────────────────── MAIN ─────────────────────────────────────────
 
+def update_manifest(assets_root: Path, variant: str, label: str) -> None:
+    """Register a variant in viewer/assets/manifest.json so the viewer can offer a
+    toggle between e.g. the initial and the PINN-evolved reconstruction."""
+    mpath = assets_root / "manifest.json"
+    data = {"variants": []}
+    if mpath.exists():
+        try:
+            data = json.loads(mpath.read_text())
+        except Exception:
+            data = {"variants": []}
+    by_id = {v["id"]: v for v in data.get("variants", [])}
+    by_id[variant] = {"id": variant, "label": label or variant.capitalize(), "dir": variant}
+    # keep 'initial' first, then the rest alphabetically
+    ordered = sorted(by_id.values(), key=lambda v: (v["id"] != "initial", v["id"]))
+    data["variants"] = ordered
+    data["default"] = "initial" if "initial" in by_id else ordered[0]["id"]
+    mpath.write_text(json.dumps(data, indent=2))
+    print(f"[manifest] Registered variant '{variant}' → {mpath}")
+
+
 def run(args):
     input_dir  = Path(args.input_dir)
-    output_dir = Path(args.output_dir) / "viewer" / "assets"
+    assets_root = Path(args.output_dir) / "viewer" / "assets"
+    # When a variant is given, assets live in assets/<variant>/ so multiple volumes
+    # (e.g. initial vs evolved) coexist; otherwise keep the legacy flat layout.
+    variant = (args.variant or "").strip()
+    output_dir = (assets_root / variant) if variant else assets_root
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Load
@@ -539,6 +563,10 @@ def run(args):
     # 7. Previews
     save_previews(volume_norm, mask, output_dir)
 
+    # 8. Register the variant (if any) in the viewer manifest
+    if variant:
+        update_manifest(assets_root, variant, args.variant_label)
+
     print("\n[done] Preprocessing complete.")
     print(f"       Assets written to: {output_dir}")
 
@@ -561,6 +589,11 @@ def parse_args():
     p.add_argument("--decimate_fraction",  type=float, default=0.85)
     p.add_argument("--max_slices",         type=int,   default=128,
                    help="Max slice PNGs exported for the viewer")
+    p.add_argument("--variant",            default="",
+                   help="Variant id (e.g. 'initial', 'evolved'). Writes to assets/<variant>/ "
+                        "and registers it in manifest.json. Empty = legacy flat assets/.")
+    p.add_argument("--variant_label",      default="",
+                   help="Human-readable label shown in the viewer toggle (e.g. 'Evolved +180 d')")
     return p.parse_args()
 
 

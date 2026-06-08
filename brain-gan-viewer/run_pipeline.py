@@ -29,8 +29,10 @@ def validate_inputs(input_dir: Path) -> None:
     print(f"[validate] {len(images)} input slices found in {input_dir}")
 
 
-def validate_outputs(output_dir: Path) -> bool:
+def validate_outputs(output_dir: Path, variant: str = "") -> bool:
     assets = output_dir / "viewer" / "assets"
+    if variant:
+        assets = assets / variant
     required = [
         assets / "brain_surface.glb",
         assets / "volume_meta.json",
@@ -45,11 +47,11 @@ def validate_outputs(output_dir: Path) -> bool:
             print(f"  [!!]  MISSING: {p.relative_to(output_dir)}")
             all_ok = False
 
-    slices = list((assets / "slices").glob("slice_*.jpg")) if (assets / "slices").exists() else []
+    slices = list((assets / "slices").glob("**/*.png")) if (assets / "slices").exists() else []
     if slices:
-        print(f"  [ok]  {len(slices)} slice JPGs")
+        print(f"  [ok]  {len(slices)} slice PNGs")
     else:
-        print("  [!!]  No slice JPGs found")
+        print("  [!!]  No slice PNGs found")
         all_ok = False
 
     return all_ok
@@ -98,6 +100,10 @@ def parse_args():
     p.add_argument("--taubin_iter",            type=int,   default=25)
     p.add_argument("--decimate_fraction",      type=float, default=0.85)
     p.add_argument("--max_slices",             type=int,   default=128)
+    p.add_argument("--variant",                default="",
+                   help="Variant id (e.g. 'initial' or 'evolved'); writes to assets/<variant>/.")
+    p.add_argument("--variant_label",          default="",
+                   help="Label shown in the viewer toggle (e.g. 'Evolved +180 d').")
     return p.parse_args()
 
 
@@ -125,11 +131,13 @@ def main():
         "--taubin_iter",       str(args.taubin_iter),
         "--decimate_fraction", str(args.decimate_fraction),
         "--max_slices",        str(args.max_slices),
+        "--variant",           args.variant,
+        "--variant_label",     args.variant_label,
     ]
     run_step(gen_cmd, "Generate brain mesh + export slices")
 
     # ── Step 2: Validate outputs
-    if not validate_outputs(output_dir):
+    if not validate_outputs(output_dir, args.variant):
         print("[pipeline] Output validation failed. Exiting.")
         sys.exit(1)
 
