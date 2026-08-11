@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Status](https://img.shields.io/badge/Status-In%20Development-yellow.svg)
+![Status](https://img.shields.io/badge/Status-Complete-brightgreen.svg)
 
 **Predicting Tomorrow's Tumors from Today's MRI**
 
@@ -181,7 +181,7 @@ Inverse-problem PINN that recovers patient-specific growth parameters from spars
 - **Evaluation**: parameter recovery vs. synthetic ground truth, held-out observation R²/MSE, field metrics at the prediction horizon (L2 relative error, DICE, Hausdorff, mean PDE residual), and UQ calibration (95% coverage, CI width)
 - **Checkpointing**: trained primary PINN + full deep ensemble + config + recovered parameters saved to a single `.pt`, with a self-contained `load_pinn()` reload helper
 
-> **Status: actively in development** — the pipeline runs end-to-end; parameter-recovery accuracy and UQ calibration are still being tuned.
+> **Status: complete** — the pipeline runs end-to-end and its outputs feed Stage 3/4 of the full pipeline. Parameter-recovery accuracy and UQ calibration are usable but not exhaustively tuned; see [Future Work](#-future-work).
 
 ---
 
@@ -290,3 +290,67 @@ Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
 </div>
 
 ---
+
+## ✅ Project Status
+
+**ORACLE is complete.** All three modules are trained, evaluated, and chained into a working
+end-to-end pipeline, and the 3D viewer is deployed. The repository is considered finished as a
+research prototype — no further development is planned beyond the items in
+[Future Work](#-future-work) below, which are open directions rather than pending tasks.
+
+What is done and reproducible today:
+
+| Component | State | Artifact |
+| --------- | ----- | -------- |
+| Tumor segmentation (nnU-Net 2D) | ✅ Trained & evaluated — test ≈ 0.84 Dice / 0.80 IoU | `models/best_nnunet2d.pth` |
+| Sparse-to-dense reconstruction (Fast2p5D + GAN) | ✅ Trained through adversarial fine-tuning, evaluated on held-out volumes (PSNR/SSIM) | `models/G_joint_epoch_022.pth`, `models/D_joint_epoch_022.pth` |
+| Tumor growth PINN (inverse Fisher–KPP + UQ) | ✅ Trained, parameters recovered, UQ computed | `models/pinn_tumor_growth.pt` |
+| Closed-loop pipeline (detect → reconstruct → evolve → re-detect → re-reconstruct) | ✅ Runs end-to-end on a patient timepoint | `full_pipeline_testing.ipynb` |
+| Interactive 3D viewer (initial vs. PINN-evolved) | ✅ Built and deployed to GitHub Pages | [`docs/brain-viewer/`](https://enricotazzer.github.io/ORACLE/brain-viewer/) |
+
+### Known limitations
+
+These are intentional scope boundaries of the prototype, not defects to be fixed here:
+
+- **Single-fold, single-institution evaluation.** Segmentation and reconstruction were validated
+  on one patient-level split of the MU-Glioma-Post cohort — no cross-validation, no external
+  test set, no multi-centre generalisation study.
+- **PINN growth is 2D and slice-wise.** The reaction–diffusion evolution is solved per slice on a
+  2D grid rather than as a true 3D volumetric PDE, and the recovered `D_wm / D_gm / ρ` are fit to
+  sparse observations without longitudinal ground truth for the prediction horizon.
+- **Evolution is qualitative.** The Stage-4 growth knobs (`GROWTH_CFG`) are tuned for visible,
+  illustrative change; the physically faithful regime (`rho_scale = D_scale = 1.0`) produces much
+  subtler evolution. Predicted volumes have **not** been clinically validated against follow-up
+  imaging.
+- **UQ is uncalibrated.** MC-Dropout, deep-ensemble, and Laplace intervals are computed and
+  reported, but their 95% coverage has not been rigorously calibrated.
+- **Not a medical device.** Research and educational use only — not for diagnosis, treatment
+  planning, or any clinical decision-making.
+
+---
+
+## 🔭 Future Work
+
+Open directions for anyone extending ORACLE. None of these are in progress.
+
+- **Full 3D PINN** — replace the slice-wise 2D Fisher–KPP solve with a volumetric
+  `uₜ = ∇·(D(x)∇u) + ρ·u(1−u)` over the whole brain, with a DTI-derived anisotropic diffusion
+  tensor instead of a scalar white/gray-matter split.
+- **Longitudinal validation** — MU-Glioma-Post is multi-timepoint; train and validate growth
+  prediction against *actual* follow-up scans rather than synthetic horizons, and report
+  Dice/Hausdorff of predicted vs. observed tumor at the follow-up date.
+- **Cross-validation & external cohorts** — k-fold patient-level CV for segmentation and
+  reconstruction, plus an external test set (BraTS, UPENN-GBM) to measure domain shift.
+- **Multi-class segmentation** — extend the binary mask to the BraTS sub-regions (enhancing
+  tumor / necrotic core / peritumoral edema) so Stage 4 no longer needs its synthetic
+  `APPEAR` compositing heuristic.
+- **True 3D reconstruction backbone** — the 2.5D generator with autoregressive fusion could be
+  replaced by a 3D or diffusion-based model that generates the volume directly, removing
+  bidirectional-fusion seams.
+- **UQ calibration** — calibrate the three uncertainty estimators (temperature scaling,
+  conformal prediction) and propagate segmentation and reconstruction uncertainty forward into
+  the growth prediction instead of treating each stage as deterministic.
+- **Packaging** — extract the notebook code into an installable `oracle/` package with a CLI,
+  pinned dependencies, and regression tests, so the pipeline runs without Jupyter.
+- **Viewer** — tumor-surface overlay as a separate mesh, a time slider across multiple PINN
+  horizons rather than a two-state toggle, and measurement tools.
