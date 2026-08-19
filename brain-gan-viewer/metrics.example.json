@@ -1,0 +1,68 @@
+{
+  "schema": "oracle.metrics/1",
+  "generated_at": "2026-08-18T14:22:07Z",
+  "variant": "evolved",
+  "label": "Evolved +180d",
+
+  "case": {
+    "patient": "PatientID_0003",
+    "timepoint": "Timepoint_1",
+    "dataset": "MU-Glioma-Post"
+  },
+  "voxel": {
+    "spacing_mm": [1.0, 1.0, 1.0],
+    "volume_mm3": 1.0
+  },
+  "horizon_days": 180.0,
+
+  "tumor": {
+    "voxels": 41230,
+    "volume_mm3": 41230.0,
+    "volume_ml": 41.23,
+    "equivalent_diameter_mm": 42.8,
+    "threshold": 0.25,
+    "source": "fisher_kpp_density"
+  },
+
+  "tumor_resegmented": {
+    "voxels": 38104,
+    "volume_mm3": 38104.0,
+    "volume_ml": 38.104,
+    "equivalent_diameter_mm": 41.7,
+    "threshold": 0.5,
+    "source": "nnunet_tta_postproc"
+  },
+
+  "growth": {
+    "ratio": 2.14,
+    "delta_volume_ml": 21.97,
+    "delta_diameter_mm": 9.6,
+    "reference_variant": "initial"
+  },
+
+  "classification": {
+    "label": "glioma",
+    "confidence": 0.8731,
+    "probabilities": {
+      "glioma": 0.8731,
+      "meningioma": 0.0602,
+      "notumor": 0.0214,
+      "pituitary": 0.0453
+    },
+    "model": "EfficientNet-B3",
+    "trained_on": "brain-tumor-mri-dataset (4-class, pre-operative)",
+    "out_of_distribution": true,
+    "ood_note": "Trained on pre-operative 4-class JPEGs; applied to post-operative MU-Glioma-Post slices. Demonstration only — no diagnostic weight.",
+    "aggregation": "top10_tumor_evidence_mean_softmax",
+    "n_slices": 137,
+    "computed_on": "initial"
+  },
+
+  "provenance": {
+    "notebook": "full_pipeline_testing.ipynb",
+    "seg_ckpt": "best_nnunet2d.pth",
+    "gan_ckpt": "G_joint_epoch_022.pth",
+    "pinn_ckpt": "pinn_tumor_growth.pt",
+    "cls_ckpt": "best_effnetb3_cls.pth"
+  }
+}

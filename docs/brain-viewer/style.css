@@ -305,3 +305,80 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
   white-space: nowrap;
   z-index: 100;
 }
+
+/* ─── Metrics panel (left rail) ──────────────────────────────────────────
+   Deliberately duplicates #panel's chrome rather than sharing a class:
+   #panel and #info-strip already differ in radius/padding/blur/anchoring,
+   so extracting a shared class would need more overrides than it saves —
+   and this file is the live deployed artifact. Additive only.            */
+#metrics-panel {
+  position: fixed;
+  top: 16px;
+  left: 16px;                       /* left rail — #panel owns the right */
+  width: var(--panel-w);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.metrics-ood {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 180, 60, 0.35);
+  border-left: 3px solid #ffb43c;
+  border-radius: 4px;
+  background: rgba(255, 180, 60, 0.08);
+  font-size: 10px;
+  line-height: 1.5;
+  color: #d9b078;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.metrics-source {
+  margin-top: 12px;
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.prob-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.prob-name { width: 74px; flex: none; }
+.prob-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(74, 158, 255, 0.15);
+  overflow: hidden;
+}
+.prob-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+.prob-row.is-top .prob-fill { background: var(--accent2); }
+.prob-pct {
+  width: 40px;
+  flex: none;
+  text-align: right;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}

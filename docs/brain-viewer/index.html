@@ -104,6 +104,44 @@
   </div>
 </div>
 
+<!-- ── Quantitative metrics panel (hidden until assets/<variant>/metrics.json loads) ── -->
+<div id="metrics-panel" style="display:none">
+  <div class="panel-title">Quantitative Analysis</div>
+
+  <div class="control-group"><div class="control-label">Volume
+      <span class="control-value" id="m-variant">—</span></div></div>
+  <div class="control-group"><div class="control-label">Tumour volume
+      <span class="control-value" id="m-volume-ml">—</span></div></div>
+  <div class="control-group"><div class="control-label">Voxel count
+      <span class="control-value" id="m-voxels">—</span></div></div>
+  <div class="control-group"><div class="control-label">Equiv. diameter
+      <span class="control-value" id="m-diameter">—</span></div></div>
+  <div class="control-group"><div class="control-label">Voxel spacing
+      <span class="control-value" id="m-spacing">—</span></div></div>
+
+  <div id="m-growth-group">
+    <div class="divider"></div>
+    <div class="control-group"><div class="control-label">Growth vs initial
+        <span class="control-value" id="m-growth-ratio">—</span></div></div>
+    <div class="control-group"><div class="control-label">&Delta; volume
+        <span class="control-value" id="m-growth-delta">—</span></div></div>
+    <div class="control-group"><div class="control-label">Horizon
+        <span class="control-value" id="m-horizon">—</span></div></div>
+  </div>
+
+  <div id="m-cls-group">
+    <div class="divider"></div>
+    <div class="control-group"><div class="control-label">Predicted type
+        <span class="control-value" id="m-cls-label">—</span></div></div>
+    <div class="control-group"><div class="control-label">Confidence
+        <span class="control-value" id="m-cls-conf">—</span></div></div>
+    <div id="m-cls-bars"></div>
+    <div class="metrics-ood" id="m-ood"></div>
+  </div>
+
+  <div class="metrics-source" id="m-source"></div>
+</div>
+
 <!-- ── Info strip ── -->
 <div id="info-strip">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
 

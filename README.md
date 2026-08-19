@@ -17,6 +17,7 @@
 
 ORACLE is an end-to-end deep learning framework for brain tumor analysis that combines **segmentation**, **3D reconstruction**, and **growth prediction**. Using multimodal MRI inputs, ORACLE can:
 
+- 🧠 Classify tumour type across 4 classes (glioma / meningioma / no-tumour / pituitary) with **Grad-CAM** explainability
 - ✅ Segment and localize tumors with pixel-level precision using 4 MRI modalities (`t1n`, `t1c`, `t2w`, `t2f`)
 - 🔄 Reconstruct full 3D brain volumes from sparse slice observations via GAN-based generation
 - 📈 Predict tumor evolution and recover patient-specific growth parameters using Physics-Informed Neural Networks (PINNs)
@@ -27,7 +28,21 @@ This project addresses the critical clinical need for **early intervention plann
 
 ## ✨ Features
 
-### 🎯 1. Tumor Segmentation (`unet_plusplus_brain_tumor_segmentation.ipynb`)
+### 🧠 1. Tumour Type Classification & Explainability (`effnet_tumor_classification.ipynb`)
+
+Upstream diagnostic branch — *what* the lesion is, and *why* the model says so.
+
+- **EfficientNet-B3** (torchvision, ImageNet transfer) → 4 classes: `glioma`, `meningioma`, `notumor`, `pituitary`
+- **Explicit preprocessing stage**: brain-region crop → resize 300×300 → **bilateral** denoise → ImageNet normalisation. Bilateral is chosen over Gaussian because these are compressed JPEGs whose dominant artefact is 8×8 DCT ringing at edges — a range-weighted kernel suppresses it without attenuating the enhancing-rim / dural-tail cues that separate glioma from meningioma. The notebook shows a timed bake-off against Gaussian and NLM rather than asserting the choice.
+- **Three-phase transfer schedule**: head warm-up (BN frozen) → partial unfreeze (`features[5:]`) → full fine-tune with discriminative LR (backbone 3e-5 / head 3e-4)
+- **EMA weights are the deployed model** (decay 0.999), selected on **macro-F1** rather than accuracy — same convention as `best_nnunet2d.pth`
+- Inverse-frequency class weights (imbalance is only ~1.2×, so no resampler); label smoothing 0.05; AMP gated on CUDA
+- **Grad-CAM** (`ClsGradCAM`) hooking `backbone.features.8` — the last 1536-channel spatial tensor before pooling. Same hook machinery as the segmenter's `SegGradCAM`; only the scalar objective changes (`logits[0, class_idx]` instead of `(prob · mask).sum()`). Includes a **misclassification panel** — where the model looked when it was *wrong*.
+- Evaluation: accuracy, balanced accuracy, macro-F1, per-class precision/recall/F1, confusion matrix (counts + row-normalised), one-vs-rest ROC-AUC, and hflip-only TTA reported separately — see §10 of the notebook
+
+> ⚠️ Two honest caveats travel with this model: its test split is **not patient-disjoint** from its training split, and applying it inside the ORACLE pipeline is **out-of-distribution**. Both are detailed under [Known limitations](#known-limitations).
+
+### 🎯 2. Tumor Segmentation (`nnUnet.ipynb`)
 
 - **Custom nnU-Net 2D** — compact encoder–decoder (~0.7M params, ~30× lighter than the previous UNet++ EfficientNet-B4) following nnU-Net design principles:
   - **GroupNorm + LeakyReLU** (numerically stable on small batches and near-empty MRI slices)
@@ -52,7 +67,7 @@ This project addresses the critical clinical need for **early intervention plann
 <br><em>Segmentation results: Input T1c · Ground Truth · Prediction · Overlay</em>
 </div>
 
-### 🧊 2. Sparse-to-Dense 3D Volume Reconstruction
+### 🧊 3. Sparse-to-Dense 3D Volume Reconstruction
 
 Two-phase training pipeline: a generator-only pretraining stage followed by GAN-based adversarial fine-tuning.
 
@@ -93,6 +108,19 @@ Two-phase training pipeline: a generator-only pretraining stage followed by GAN-
 The GAN-predicted volume is rendered through a full production pipeline (`brain-gan-viewer/`) that converts raw MRI slices into a deployable Three.js web viewer hosted on GitHub Pages.
 
 The viewer also supports a **`Volume` toggle** — switch between the patient's **current** reconstruction and its **PINN-predicted future** (the Stage-4 evolved volume) from the *same* camera and clip position, for a direct 3D before/after comparison. `full_pipeline_testing.ipynb` exports both slice stacks; `generate_brain.py --variant initial|evolved` builds them (see [`brain-gan-viewer/README.md`](brain-gan-viewer/README.md#multiple-volumes--initial-vs-evolved-pinn-toggle)).
+
+##### Quantitative metrics panel
+
+The viewer also renders a **quantitative panel** for the selected volume: tumour volume in
+mL, voxel count, sphere-equivalent diameter, native voxel spacing, and — on the evolved
+volume — growth ratio, Δ volume and the prediction horizon, plus the classifier's tumour
+type and per-class probabilities. It reads `assets/<variant>/metrics.json`
+(schema `oracle.metrics/1`, written by `full_pipeline_testing.ipynb` and copied in by
+`generate_brain.py --metrics_json`). The file is **optional**: if it is absent or
+unparseable the panel simply stays hidden and the mesh loads exactly as before. Because
+`initial` and `evolved` are thresholded on different quantities (nnU-Net mask vs Fisher–KPP
+density), the panel always names the source and threshold it is reporting.
+See [`brain-gan-viewer/metrics.example.json`](brain-gan-viewer/metrics.example.json).
 
 ##### Pipeline overview
 
@@ -164,7 +192,7 @@ Key preprocessing parameters:
 | `--decimate_fraction` | 0.85 | Face reduction after marching cubes (smaller GLB) |
 | `--max_slices` | 128 | Slice PNGs exported per axis (reduce to lower repo size) |
 
-### ⏱️ 3. Physics-Informed Tumor Growth Prediction (`pinn_tumor_growth.ipynb`)
+### ⏱️ 4. Physics-Informed Tumor Growth Prediction (`pinn_tumor_growth.ipynb`)
 
 Inverse-problem PINN that recovers patient-specific growth parameters from sparse tumor-density observations and forward-predicts tumor evolution, on the **BraTS 2024** dataset (with a finite-difference synthetic fallback when the dataset is unavailable).
 
@@ -198,6 +226,12 @@ Inverse-problem PINN that recovers patient-specific growth parameters from spars
                   (t1n, t1c, t2w, t2f volumes)
                             │
                             ▼
+                  ┌──────────────────────┐
+                  │ Classification Module│ → Tumor type + Grad-CAM
+                  │  EfficientNet-B3     │   (parallel branch, OOD demo)
+                  └──────────────────────┘
+                            │
+                            ▼
                   ┌─────────────────────┐
                   │ Segmentation Module │ → Binary Tumor Mask
                   │  nnU-Net 2D (0.7M)  │
@@ -219,14 +253,15 @@ Inverse-problem PINN that recovers patient-specific growth parameters from spars
                   └───────────────────┘
                             │
                             ▼
-                 3D Visualization
-                 (Marching cubes + Plotly)
+            3D Visualization + Volume Analysis
+            (Marching cubes · Three.js · mL / diameter)
 ```
 
 ### Module Details
 
 | Module | Input | Output | Technology |
 |--------|-------|--------|------------|
+| **Classification** | 3-ch 2D MRI slice (300×300) | 4-class softmax + Grad-CAM | EfficientNet-B3 (ImageNet transfer, EMA, macro-F1 selection) |
 | **Segmentation** | 4-ch MRI slice (`t1n`,`t1c`,`t2w`,`t2f`) | Binary tumor mask | nnU-Net 2D (GroupNorm, deep supervision) + EMA + TTA + snapshot ensemble |
 | **Reconstruction** | 5-ch, 5-slice context window | 3D volume (autoregressive) | Fast2p5D + VolumeDiscriminator (GAN) |
 | **PINN** | Sparse tumor-density obs `u(x,y,t)` | Recovered `D_wm/D_gm/ρ` + predicted `u(x,y,t)` + UQ | Inverse Fisher–KPP PINN (Fourier features, RAR, MC-Dropout / Ensemble / Laplace) |
@@ -244,6 +279,11 @@ re-detect → re-reconstruct**:
 ```
         4-modality MRI (t1n, t1c, t2w, t2f)
                         │
+   ┌────────────────────▼─────────────────────┐
+   │ 0b · Classification — EfficientNet-B3     │  tumour type + Grad-CAM
+   │      (mask-free, upstream, OOD demo)      │  → feeds metrics.json only
+   └────────────────────┬─────────────────────┘
+                        │ (does NOT gate segmentation)
    ┌────────────────────▼─────────────────────┐
    │ 1 · Segmentation — nnU-Net 2D             │  EMA weights + 16-aug TTA
    │     (deep supervision)                    │  + morphological post-processing
@@ -293,6 +333,12 @@ Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
 
 ## ✅ Project Status
 
+> **Update — 2026-08:** ORACLE was extended with an upstream tumour-type classification
+> stage (EfficientNet-B3 + Grad-CAM) and a quantitative metrics panel in the 3D viewer.
+> The three original modules and their checkpoints are **unchanged**, and the closed-loop
+> pipeline still runs exactly as described below — Stage 0b is skipped cleanly if its
+> checkpoint is absent.
+
 **ORACLE is complete.** All three modules are trained, evaluated, and chained into a working
 end-to-end pipeline, and the 3D viewer is deployed. The repository is considered finished as a
 research prototype — no further development is planned beyond the items in
@@ -302,6 +348,7 @@ What is done and reproducible today:
 
 | Component | State | Artifact |
 | --------- | ----- | -------- |
+| Tumour type classification (EfficientNet-B3 + Grad-CAM) | ✅ Trained & evaluated on the dataset's own held-out test split — per-class metrics in `effnet_tumor_classification.ipynb` §10 | `models/best_effnetb3_cls.pth` |
 | Tumor segmentation (nnU-Net 2D) | ✅ Trained & evaluated — test ≈ 0.84 Dice / 0.80 IoU | `models/best_nnunet2d.pth` |
 | Sparse-to-dense reconstruction (Fast2p5D + GAN) | ✅ Trained through adversarial fine-tuning, evaluated on held-out volumes (PSNR/SSIM) | `models/G_joint_epoch_022.pth`, `models/D_joint_epoch_022.pth` |
 | Tumor growth PINN (inverse Fisher–KPP + UQ) | ✅ Trained, parameters recovered, UQ computed | `models/pinn_tumor_growth.pt` |
@@ -324,6 +371,16 @@ These are intentional scope boundaries of the prototype, not defects to be fixed
   imaging.
 - **UQ is uncalibrated.** MC-Dropout, deep-ensemble, and Laplace intervals are computed and
   reported, but their 95% coverage has not been rigorously calibrated.
+- **Classifier evaluation is optimistic.** `brain-tumor-mri-dataset` aggregates three public
+  sources (figshare, SARTAJ, Br35H); its official `Testing/` split is **not patient-disjoint**
+  from `Training/`, and near-duplicate images exist across the two. The notebook counts the
+  exact byte-identical overlap, but near-duplicates are not caught — read the reported metrics
+  as an **upper bound**, not a generalisation estimate. Softmax confidence is also uncalibrated.
+- **Classification inside the pipeline is out-of-distribution.** The classifier is trained on
+  *pre-operative* 2D JPEGs across mixed scanners and planes; MU-Glioma-Post is **100 % glioma
+  and post-operative**, with no tumour-type ground truth to score against. Its prediction there
+  is a wiring demonstration carrying **no diagnostic weight**, flagged as such in the notebook,
+  in `metrics.json` (`out_of_distribution: true`), and in the viewer.
 - **Not a medical device.** Research and educational use only — not for diagnosis, treatment
   planning, or any clinical decision-making.
 
@@ -350,6 +407,14 @@ Open directions for anyone extending ORACLE. None of these are in progress.
 - **UQ calibration** — calibrate the three uncertainty estimators (temperature scaling,
   conformal prediction) and propagate segmentation and reconstruction uncertainty forward into
   the growth prediction instead of treating each stage as deterministic.
+- **Classifier domain adaptation** — fine-tune or adapt the 4-class model on MU-Glioma-Post
+  itself (or an equivalent post-operative cohort) so the in-pipeline prediction stops being
+  out-of-distribution, and evaluate it against a patient-disjoint split.
+- **Confidence calibration** — temperature scaling or conformal prediction on the classifier
+  before its confidence is used for anything beyond display; it is currently uncalibrated and
+  shown on a public page.
+- **Tumour-type-conditioned growth priors** — feed the predicted type into the PINN as a prior
+  over `D` and `ρ`, since meningioma and glioma have very different infiltration behaviour.
 - **Packaging** — extract the notebook code into an installable `oracle/` package with a CLI,
   pinned dependencies, and regression tests, so the pipeline runs without Jupyter.
 - **Viewer** — tumor-surface overlay as a separate mesh, a time slider across multiple PINN

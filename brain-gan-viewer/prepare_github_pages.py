@@ -70,6 +70,12 @@ def verify_assets(deploy_dst: Path) -> bool:
             p = root / name
             print(f"  [{'ok' if p.exists() else '!!'}]  {tag}/{name}")
             ok = ok and p.exists()
+        # metrics.json is optional (C1 rule 9 / C2): report its presence for visibility,
+        # but do NOT fold it into `ok`. It is never generated unless --metrics_json was
+        # passed to generate_brain.py, so gating on it would sys.exit(1) every existing
+        # deployment that predates the metrics panel. Report-only, by design.
+        m = root / "metrics.json"
+        print(f"  [{'ok' if m.exists() else '--'}]  {tag}/metrics.json (optional)")
         n = len(list((root / "slices").glob("**/*.png"))) if (root / "slices").exists() else 0
         print(f"  [{'ok' if n else '!!'}]  {tag}: {n} slice PNGs")
         ok = ok and n > 0

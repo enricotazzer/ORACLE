@@ -114,6 +114,7 @@ const state = {
   brightness: 1.0,
   autoRotate: false,
   meta:       null,
+  metrics:    null,         // assets/<variant>/metrics.json (optional, may be null)
   brainBox:   null,
   variants:   [{ id: 'default', label: 'Brain', base: 'assets/' }],
   variant:    0,            // index into state.variants (the active volume)
@@ -400,9 +401,134 @@ function disposeBrain() {
 
 // Load (or hot-swap to) a variant. keepView=true preserves camera + clip so the
 // initial and evolved volumes can be compared from the exact same viewpoint.
+/* ── Quantitative metrics (optional) ───────────────────────────────────────
+   assets/<variant>/metrics.json, schema 'oracle.metrics/1'. The file is
+   optional by contract: a 404, unparseable JSON, or an unsupported major
+   version all mean "hide the panel" — never an error, never a blocked mesh.
+   Rendering wrong numbers on a medical page is worse than rendering none,
+   so an unrecognised major version refuses rather than guesses.          */
+async function loadMetrics() {
+  try {
+    const resp = await fetch(asset(vbase() + 'metrics.json'));
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    if (!d || typeof d.schema !== 'string' || !d.schema.startsWith('oracle.metrics/1')) {
+      console.warn('[brain-viewer] unsupported metrics schema:', d && d.schema);
+      return null;
+    }
+    return d;
+  } catch (_) {
+    return null;
+  }
+}
+
+function hideMetrics() {
+  const p = document.getElementById('metrics-panel');
+  if (p) p.style.display = 'none';
+}
+
+// Set a value, or hide the whole row when the datum is absent.
+function setMetric(id, value, fmt) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const row = el.closest('.control-group') || el.parentElement;
+  const missing = value === null || value === undefined ||
+                  (typeof value === 'number' && !Number.isFinite(value));
+  if (missing) {
+    if (row) row.style.display = 'none';
+    return;
+  }
+  if (row) row.style.display = '';
+  el.textContent = fmt ? fmt(value) : String(value);
+}
+
+function renderMetrics() {
+  const panel = document.getElementById('metrics-panel');
+  if (!panel) return;
+  const m = state.metrics;
+  if (!m) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const t = m.tumor || {};
+  setMetric('m-variant',   m.label || m.variant || null);
+  setMetric('m-volume-ml', t.volume_ml,              v => v.toFixed(2) + ' mL');
+  setMetric('m-voxels',    t.voxels,                 v => v.toLocaleString());
+  setMetric('m-diameter',  t.equivalent_diameter_mm, v => v.toFixed(1) + ' mm');
+  setMetric('m-spacing',   Array.isArray(m.voxel && m.voxel.spacing_mm) ? m.voxel.spacing_mm : null,
+                                                     a => a.map(x => x.toFixed(2)).join(' × ') + ' mm');
+
+  // Growth: null on the initial variant by contract.
+  const g = m.growth;
+  const gGroup = document.getElementById('m-growth-group');
+  if (gGroup) gGroup.style.display = g ? '' : 'none';
+  if (g) {
+    setMetric('m-growth-ratio', g.ratio,            v => v.toFixed(2) + '×');
+    setMetric('m-growth-delta', g.delta_volume_ml,  v => (v >= 0 ? '+' : '') + v.toFixed(2) + ' mL');
+    setMetric('m-horizon',      m.horizon_days,     v => '+' + v.toFixed(0) + ' d');
+  }
+
+  // Classification: null when no classifier ran.
+  const c = m.classification;
+  const cGroup = document.getElementById('m-cls-group');
+  if (cGroup) cGroup.style.display = c ? '' : 'none';
+  if (c) {
+    setMetric('m-cls-label', c.label || null, v => String(v).toUpperCase());
+    setMetric('m-cls-conf',  c.confidence,    v => (v * 100).toFixed(1) + '%');
+
+    const bars = document.getElementById('m-cls-bars');
+    if (bars) {
+      bars.innerHTML = '';
+      const probs = c.probabilities || {};
+      Object.keys(probs).forEach(k => {
+        const p = probs[k];
+        if (typeof p !== 'number' || !Number.isFinite(p)) return;
+        const row = document.createElement('div');
+        row.className = 'prob-row' + (k === c.label ? ' is-top' : '');
+        const pct = (p * 100).toFixed(1);
+        row.innerHTML =
+          `<span class="prob-name"></span>` +
+          `<span class="prob-bar"><span class="prob-fill" style="width:${pct}%"></span></span>` +
+          `<span class="prob-pct">${pct}%</span>`;
+        row.querySelector('.prob-name').textContent = k;   // textContent: never inject data as HTML
+        bars.appendChild(row);
+      });
+    }
+
+    const ood = document.getElementById('m-ood');
+    if (ood) {
+      const show = c.out_of_distribution && c.ood_note;
+      ood.style.display = show ? '' : 'none';
+      ood.textContent = show ? c.ood_note : '';
+    }
+  }
+
+  // C1 rule 8: initial and evolved are thresholded on *different* quantities,
+  // so the source and threshold must always be visible, never implied.
+  const src = document.getElementById('m-source');
+  if (src) {
+    const parts = [];
+    if (t.source) parts.push(String(t.source).replace(/_/g, ' '));
+    if (typeof t.threshold === 'number' && Number.isFinite(t.threshold)) {
+      parts.push('threshold ' + t.threshold);
+    }
+    src.style.display = parts.length ? '' : 'none';
+    src.textContent = parts.length ? 'Source: ' + parts.join(' · ') : '';
+  }
+}
+
 async function loadVariant(index, keepView) {
   state.variant = index;
   state.meta = await loadMeta();
+
+  // Optional metrics — isolated so a render bug can never reject the promise
+  // init() awaits (which would raise the full-screen "assets not found" overlay).
+  state.metrics = await loadMetrics();
+  try {
+    renderMetrics();
+  } catch (e) {
+    console.warn('[brain-viewer] metrics render failed', e);
+    hideMetrics();
+  }
 
   // On the very first load honour the axis used during preprocessing
   if (!keepView) {

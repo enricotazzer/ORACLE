@@ -104,6 +104,10 @@ def parse_args():
                    help="Variant id (e.g. 'initial' or 'evolved'); writes to assets/<variant>/.")
     p.add_argument("--variant_label",          default="",
                    help="Label shown in the viewer toggle (e.g. 'Evolved +180 d').")
+    p.add_argument("--metrics_json",           default="",
+                   help="Optional path to a metrics.json (schema 'oracle.metrics/1', see "
+                        "metrics.example.json) forwarded to generate_brain.py and copied to "
+                        "assets/<variant>/metrics.json. Non-fatal if missing/invalid.")
     return p.parse_args()
 
 
@@ -133,6 +137,7 @@ def main():
         "--max_slices",        str(args.max_slices),
         "--variant",           args.variant,
         "--variant_label",     args.variant_label,
+        "--metrics_json",      args.metrics_json,
     ]
     run_step(gen_cmd, "Generate brain mesh + export slices")
 

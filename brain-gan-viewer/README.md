@@ -117,6 +117,31 @@ still works unchanged.
 
 ---
 
+## Metrics panel (optional)
+
+If a per-variant `metrics.json` (schema `oracle.metrics/1`) is present, the viewer overlays a
+metrics panel alongside the mesh — tumour volume/diameter, growth vs. the `initial` variant,
+and (when `full_pipeline_testing.ipynb` ran Stage 0b) the out-of-distribution tumour-type
+classification. See [`metrics.example.json`](metrics.example.json) in this directory for the
+full schema and field-by-field documentation.
+
+Pass it with `--metrics_json <path>` on `generate_brain.py` (or `run_pipeline.py`, which
+forwards it through unchanged) and it is copied to `assets/<variant>/metrics.json`:
+
+```bash
+python generate_brain.py --input_dir ./data/gan_slices_evolved \
+  --variant evolved --variant_label "Evolved +180d" \
+  --metrics_json ./metrics_evolved.json
+```
+
+The flag is entirely optional and non-fatal: an empty/missing path or invalid JSON is skipped
+with a warning rather than failing the run, and `prepare_github_pages.py` reports the file's
+presence per variant without ever gating the build on it. A `metrics.json` that fails to parse,
+404s, or carries an unrecognised `schema` simply leaves the panel hidden in the viewer — the
+mesh and slice viewer are unaffected either way.
+
+---
+
 ## Run locally
 
 ```bash
@@ -180,6 +205,7 @@ from the same parameter — no shader tricks, no fragile UV projection.
 | `--taubin_iter` | 25 | Number of Taubin smoothing iterations |
 | `--decimate_fraction` | 0.85 | Target face fraction after decimation (1.0 = no decimation) |
 | `--max_slices` | 128 | Number of MRI slice JPGs exported for the viewer |
+| `--metrics_json` | *(empty)* | Optional path to a metrics.json (schema `oracle.metrics/1`) copied to `assets/<variant>/metrics.json` for the viewer's metrics panel — see [Metrics panel](#metrics-panel-optional) below |
 
 ---
 

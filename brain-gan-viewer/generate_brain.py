@@ -496,6 +496,44 @@ def save_previews(volume_norm: np.ndarray,
     print(f"[preview] Saved previews to {preview_dir}")
 
 
+# ─────────────────────────── 7b. METRICS ──────────────────────────────────
+
+def copy_metrics(metrics_json: str, output_dir: Path) -> None:
+    """Copy an optional per-variant metrics.json (schema 'oracle.metrics/1', see
+    brain-gan-viewer/metrics.example.json) into output_dir/metrics.json.
+
+    Entirely optional and non-fatal: an empty path is a silent no-op, and a
+    missing file or invalid JSON only prints a warning and returns. The
+    viewer already treats a missing/unparseable metrics.json as "hide the
+    panel" (C1 rule 9), so this step must never raise or block the pipeline.
+    A schema that doesn't start with 'oracle.metrics/1' is copied anyway
+    (with a warning) — refusing to render on schema mismatch is the reader's
+    job, not this copy step's.
+    """
+    if not metrics_json:
+        return
+
+    src = Path(metrics_json)
+    if not src.exists():
+        print(f"[metrics] WARNING: --metrics_json path not found: {src} — skipping")
+        return
+
+    try:
+        data = json.loads(src.read_text())
+    except Exception as e:
+        print(f"[metrics] WARNING: could not parse {src} as JSON ({e}) — skipping")
+        return
+
+    schema = data.get("schema", "")
+    if not str(schema).startswith("oracle.metrics/1"):
+        print(f"[metrics] WARNING: unexpected schema '{schema}' in {src} "
+              f"(expected 'oracle.metrics/1') — copying anyway")
+
+    dest = output_dir / "metrics.json"
+    shutil.copyfile(src, dest)
+    print(f"[metrics] Copied {src} → {dest}")
+
+
 # ─────────────────────────── MAIN ─────────────────────────────────────────
 
 def update_manifest(assets_root: Path, variant: str, label: str) -> None:
@@ -563,6 +601,9 @@ def run(args):
     # 7. Previews
     save_previews(volume_norm, mask, output_dir)
 
+    # 7b. Metrics (optional — see brain-gan-viewer/metrics.example.json)
+    copy_metrics(args.metrics_json, output_dir)
+
     # 8. Register the variant (if any) in the viewer manifest
     if variant:
         update_manifest(assets_root, variant, args.variant_label)
@@ -594,6 +635,10 @@ def parse_args():
                         "and registers it in manifest.json. Empty = legacy flat assets/.")
     p.add_argument("--variant_label",      default="",
                    help="Human-readable label shown in the viewer toggle (e.g. 'Evolved +180 d')")
+    p.add_argument("--metrics_json",       default="",
+                   help="Optional path to a metrics.json (schema 'oracle.metrics/1', see "
+                        "metrics.example.json) copied to assets/<variant>/metrics.json. "
+                        "Non-fatal if missing/invalid — the viewer just hides the metrics panel.")
     return p.parse_args()
 
 
