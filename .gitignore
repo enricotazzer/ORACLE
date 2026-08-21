@@ -11,3 +11,4 @@
 /viewer_slices
 /pipeline_out
 ._*
+__pycache__/

@@ -23,6 +23,7 @@ Root notebooks, in pipeline order:
 | [3d-recon-disc.ipynb](3d-recon-disc.ipynb) | Stage 2b — GAN adversarial fine-tuning; also drives the brain-gan-viewer pipeline and serves the viewer locally |
 | [pinn_tumor_growth.ipynb](pinn_tumor_growth.ipynb) | Stage 3 — inverse Fisher–KPP PINN on BraTS 2024; produces `pinn_tumor_growth.pt` |
 | [full_pipeline_testing.ipynb](full_pipeline_testing.ipynb) | Chains all four checkpoints end-to-end on one patient timepoint (Stage 0b classification + Stages 1-4, including the closed evolution loop) |
+| [demo_full_run_executed.ipynb](demo_full_run_executed.ipynb) | The same run, **committed with its outputs** — the zero-setup artifact linked from the README and landing page. Do not strip its outputs; that is the entire point of the file |
 
 Untracked-but-present directories (all in [.gitignore](.gitignore)): `models/` (six checkpoints once the classifier is published), `assets/`, `old_approaches/`, `viewer_slices/` (`initial/` + `evolved/` PNG stacks exported by the full pipeline), `PKG-MU-Glioma-partial/` (local dataset copy), `roadmap.md`.
 
@@ -71,11 +72,13 @@ cd ../docs/brain-viewer && python -m http.server 8080
 
 The viewer itself is plain Three.js loaded from a CDN importmap — **no npm, no bundler**. `brain-gan-viewer/viewer/` is gitignored and `docs/brain-viewer/` is the tracked deploy artifact; the two are kept byte-identical. Edit the tracked copy and mirror it by hand — see the warning under [Deployment](#deployment) before reaching for `prepare_github_pages.py`.
 
+The viewer is **four** files, not three: `index.html`, `app.js`, `style.css`, `tour.js`. Mirror all four.
+
 ## Deployment
 
-> **⚠️ Do not run `prepare_github_pages.py` for code-only viewer edits.** Its `copy_viewer()` does `shutil.rmtree(docs/brain-viewer)` and then `copytree` from the **gitignored** `brain-gan-viewer/viewer/` — it deletes ~1261 tracked files (173 MB) and repopulates from an untracked source. It is safe only while the two trees are identical. For editing `index.html`/`app.js`/`style.css`, change the tracked copy under `docs/brain-viewer/`, then `cp` the three files into `brain-gan-viewer/viewer/`, and confirm `git status --short` shows exactly three paths.
+> **⚠️ Do not run `prepare_github_pages.py` for code-only viewer edits.** Its `copy_viewer()` does `shutil.rmtree(docs/brain-viewer)` and then `copytree` from the **gitignored** `brain-gan-viewer/viewer/` — it deletes ~1261 tracked files (173 MB) and repopulates from an untracked source. It is safe only while the two trees are identical. For editing `index.html`/`app.js`/`style.css`/`tour.js`, change the tracked copy under `docs/brain-viewer/`, then `cp` the four files into `brain-gan-viewer/viewer/`, and confirm `git status --short` shows only those paths.
 
-[.github/workflows/static.yml](.github/workflows/static.yml) publishes `./docs` to GitHub Pages on every push to `main`. Anything committed under `docs/brain-viewer/` goes live at `https://enricotazzer.github.io/ORACLE/brain-viewer/`. Note `brain-gan-viewer/viewer/` and `brain-gan-viewer/docs/` are gitignored while the top-level `docs/` is not — `docs/brain-viewer/` is the deploy artifact and must be committed.
+[.github/workflows/static.yml](.github/workflows/static.yml) publishes `./docs` to GitHub Pages on every push to `main`. Anything committed under `docs/brain-viewer/` goes live at `https://enricotazzer.github.io/ORACLE/brain-viewer/`, and the site root `https://enricotazzer.github.io/ORACLE/` serves [docs/index.html](docs/index.html) — a standalone landing page with its own [docs/style.css](docs/style.css) and [docs/assets/](docs/assets/), unrelated to the viewer's stylesheet. `prepare_github_pages.py` only touches `docs/brain-viewer/`, so the landing page is safe from it. Note `brain-gan-viewer/viewer/` and `brain-gan-viewer/docs/` are gitignored while the top-level `docs/` is not — `docs/brain-viewer/` is the deploy artifact and must be committed.
 
 ## Architecture notes worth knowing before editing
 
@@ -109,10 +112,23 @@ Kaggle notebooks default to **Internet OFF**, and without it torchvision cannot 
 - `voxel.spacing_mm` is the **native NIfTI grid** (`header.get_zooms()[:3]`). `volume_meta.json`'s `pixel_spacing_mm` describes the viewer's 256² resampled *display* grid. They are different quantities — **never reconcile them.**
 - Writers must wrap values in `float()`/`int()` (numpy scalars aren't JSON-serializable) and guarantee finiteness — `json.dumps` emits bare `NaN`/`Infinity`, which is invalid JSON and makes `JSON.parse` throw in the browser.
 
+## Guided tour contract
+
+[docs/brain-viewer/tour.js](docs/brain-viewer/tour.js) is loaded by a **dynamic import inside a `.catch()`** at the end of `init()`. It is optional in exactly the way `metrics.json` is: rename or delete it and the viewer must behave as it did before the tour existed. Never move it to a static `import` — that would put it on the critical path and a syntax error there would blank the page.
+
+- `app.js` has exactly **one export**, `tourApi` — `{ state, camera, controls, fitCamera, switchVariant, openMetricsDrawer, closeDrawers, els }`. The tour never reaches into module internals; widen this object rather than exporting more symbols.
+- **Beats drive the real UI**: set `slider.value` then `dispatchEvent(new Event('input'))`, or `.click()` an axis button, so `app.js`'s own handlers run. Do not reimplement what a handler already does — that is how the panel and the scene desynchronise.
+- **Cancellation keys on `e.isTrusted`.** Synthetic events dispatched by `tour.js` are untrusted, so the tour cannot cancel itself; any real gesture ends it. This is also why the cancel path cannot be exercised from jsdom — `dispatchEvent` can never produce a trusted event. Test `stop()`'s effects via the Skip button instead.
+- `tween()` carries a **watchdog** (`ms * 3 + 500`) because `requestAnimationFrame` does not fire in a backgrounded tab; without it a beat hangs forever with only Skip to escape.
+- Beats declare `need()` predicates and are filtered at start. A beat that reads `metrics` must say so — beat 7 needs `variants.length > 1 && !!state.metrics`, and tests "are there metrics at all" rather than "is `growth` set", since `growth` is null on `initial` by contract and only populates after the variant switch.
+- Captions read live values out of `state.metrics`; do not hard-code numbers into them.
+
+Headless harnesses live in the scratchpad, not the repo: they drive `installTour()` against `index.html` under jsdom with a stub `api`, and cover the 8-beat happy path, cancellation, missing `metrics.json`, single-variant deployments, and repeat runs.
+
 ## Conventions
 
 - `SEED = 42` everywhere; keep it when adding cells.
 - Config lives in ALL-CAPS module-level constants or a single `CFG`/`INFER_CFG`/`GROWTH_CFG` dict near the top of the relevant section — add new knobs there rather than inline.
 - **Edit notebooks programmatically**, never by hand: load with `json.load`, splice cell dicts, and write back as `json.dumps(nb, indent=1, ensure_ascii=False) + "\n"` — that round-trips byte-exactly, so diffs contain only the cells you changed. New cell `id` = `uuid4().hex[:8]`; code cells carry `execution_count: null` and `outputs: []`. Gate with an AST check (blank `!`/`%` lines, then `ast.parse` every code cell) — all notebooks pass it today.
-- Notebooks are committed **with outputs stripped** (except `dataset_analysis.ipynb` and `3d-recon-disc.ipynb`, which retain some). Figures shown in the README live as static files in [readme_assets/](readme_assets/) — regenerate and re-commit those rather than relying on embedded cell output.
+- Notebooks are committed **with outputs stripped** (except `dataset_analysis.ipynb`, `3d-recon-disc.ipynb`, and `demo_full_run_executed.ipynb`, which retain them deliberately). Figures shown in the README live as static files in [readme_assets/](readme_assets/) — regenerate and re-commit those rather than relying on embedded cell output.
 - Section headings are numbered markdown cells (`## 7. Model Initialization`); the numbering has gaps from removed sections — leave them alone rather than renumbering, since prose references section numbers.

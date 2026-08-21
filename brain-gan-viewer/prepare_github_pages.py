@@ -50,6 +50,14 @@ def verify_assets(deploy_dst: Path) -> bool:
             print(f"  [!!]  MISSING: {path.relative_to(deploy_dst)}")
             ok = False
 
+    # tour.js is optional the same way metrics.json is: app.js loads it with a
+    # dynamic import inside a .catch(), so a deployment without it is a working
+    # viewer minus the guided tour. Report it, but never fold it into `ok` —
+    # that would make every pre-tour deployment start exiting 1.
+    tour = deploy_dst / "tour.js"
+    print(f"  [{'ok' if tour.exists() else '--'}]  tour.js"
+          f"{'' if tour.exists() else '  (absent — guided tour disabled, viewer unaffected)'}")
+
     assets = deploy_dst / "assets"
     manifest = assets / "manifest.json"
     # Variant layout (assets/<variant>/…) when a manifest is present; else legacy flat layout.

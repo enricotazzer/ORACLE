@@ -56,6 +56,9 @@ const screenshotBtn   = document.getElementById('screenshot-btn');
 const axisBtns        = document.querySelectorAll('.axis-btn');
 const variantGroup    = document.getElementById('variant-group');
 const variantToggle   = document.getElementById('variant-toggle');
+const panelEl         = document.getElementById('panel');
+const panelToggle     = document.getElementById('panel-toggle');
+const metricsToggle   = document.getElementById('metrics-toggle');
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -401,6 +404,41 @@ function disposeBrain() {
 
 // Load (or hot-swap to) a variant. keepView=true preserves camera + clip so the
 // initial and evolved volumes can be compared from the exact same viewpoint.
+// ── Mobile drawers (≤900px) ──────────────────────────────────────────────────
+// Above 900px the two panels are fixed rails and these toggles are display:none,
+// so every function here is a no-op on desktop. Below it, only one panel may be
+// open at a time — two open drawers would leave no canvas visible on a phone.
+function setDrawer(el, btn, open) {
+  if (!el || !btn) return;
+  el.classList.toggle('open', open);
+  btn.classList.toggle('active', open);
+  btn.setAttribute('aria-expanded', String(open));
+}
+
+function toggleDrawer(which) {
+  const mEl = document.getElementById('metrics-panel');
+  const wantPanel   = which === 'panel'   && !panelEl.classList.contains('open');
+  const wantMetrics = which === 'metrics' && !!mEl && !mEl.classList.contains('open');
+  setDrawer(panelEl, panelToggle, wantPanel);
+  setDrawer(mEl, metricsToggle, wantMetrics);
+}
+
+// Used by the guided tour, which must reveal the metrics panel before pointing at it.
+function openMetricsDrawer() {
+  const mEl = document.getElementById('metrics-panel');
+  if (!mEl || mEl.style.display === 'none') return;
+  setDrawer(panelEl, panelToggle, false);
+  setDrawer(mEl, metricsToggle, true);
+}
+
+function closeDrawers() {
+  setDrawer(panelEl, panelToggle, false);
+  setDrawer(document.getElementById('metrics-panel'), metricsToggle, false);
+}
+
+if (panelToggle)   panelToggle.addEventListener('click',   () => toggleDrawer('panel'));
+if (metricsToggle) metricsToggle.addEventListener('click', () => toggleDrawer('metrics'));
+
 /* ── Quantitative metrics (optional) ───────────────────────────────────────
    assets/<variant>/metrics.json, schema 'oracle.metrics/1'. The file is
    optional by contract: a 404, unparseable JSON, or an unsupported major
@@ -425,6 +463,9 @@ async function loadMetrics() {
 function hideMetrics() {
   const p = document.getElementById('metrics-panel');
   if (p) p.style.display = 'none';
+  // No metrics → no drawer toggle. '' hands display back to the media query.
+  if (metricsToggle) metricsToggle.style.display = 'none';
+  setDrawer(p, metricsToggle, false);
 }
 
 // Set a value, or hide the whole row when the datum is absent.
@@ -446,8 +487,9 @@ function renderMetrics() {
   const panel = document.getElementById('metrics-panel');
   if (!panel) return;
   const m = state.metrics;
-  if (!m) { panel.style.display = 'none'; return; }
+  if (!m) { hideMetrics(); return; }
   panel.style.display = '';
+  if (metricsToggle) metricsToggle.style.display = '';
 
   const t = m.tumor || {};
   setMetric('m-variant',   m.label || m.variant || null);
@@ -539,6 +581,12 @@ async function loadVariant(index, keepView) {
     }
   }
 
+  // ~54 MB per variant (4.6 MB GLB + 3 x 128 slice PNGs). Say so on touch
+  // devices, where this is far more likely to be a metered connection.
+  if (state.firstLoad && window.matchMedia('(pointer: coarse)').matches) {
+    setLoadingMsg('Loading ~54 MB — best on Wi-Fi');
+  }
+
   disposeBrain();
   brainGroup = await loadBrainGLB();
   scene.add(brainGroup);
@@ -567,6 +615,16 @@ async function switchVariant(index) {
   }
 }
 
+/* ── Tour surface ──────────────────────────────────────────────────────────
+   The one export in this file. tour.js drives the viewer through these and
+   through the real UI controls below — it never reaches into module state
+   directly, so the tour cannot desynchronise the panel from the scene.    */
+export const tourApi = {
+  state, camera, controls,
+  fitCamera, switchVariant, openMetricsDrawer, closeDrawers,
+  els: { clipSlider, axisBtns, autoRotateToggle },
+};
+
 // ── Initialise ────────────────────────────────────────────────────────────────
 async function init() {
   try {
@@ -576,6 +634,15 @@ async function init() {
     state.firstLoad = false;
     hideLoading();
     animate();
+
+    // Optional, like metrics.json: always loaded (it installs its own start
+    // button), but only autostarted by ?tour=1 — which is what makes the
+    // screencast reproducible. A 404 or throw here leaves the viewer as-is.
+    import('./tour.js')
+      .then(m => m.installTour(tourApi, {
+        autostart: new URLSearchParams(location.search).has('tour'),
+      }))
+      .catch(e => console.warn('[brain-viewer] tour unavailable', e));
   } catch (err) {
     console.error('[brain-viewer]', err);
     showError(

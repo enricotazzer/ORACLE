@@ -142,8 +142,19 @@
   <div class="metrics-source" id="m-source"></div>
 </div>
 
+<!-- ── Drawer toggles (≤900px only — hidden by CSS on desktop) ── -->
+<button id="metrics-toggle" class="drawer-toggle" style="display:none"
+        aria-controls="metrics-panel" aria-expanded="false"
+        aria-label="Show quantitative analysis" title="Quantitative analysis">📊</button>
+<button id="panel-toggle" class="drawer-toggle"
+        aria-controls="panel" aria-expanded="false"
+        aria-label="Show viewer controls" title="Viewer controls">⚙</button>
+
 <!-- ── Info strip ── -->
-<div id="info-strip">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
+<div id="info-strip">
+  <span class="hint-fine">Drag to rotate · Scroll to zoom · Right-drag to pan</span>
+  <span class="hint-coarse">Drag · Pinch to zoom</span>
+</div>
 
 <!-- ── Three.js (CDN, no build step) ── -->
 <script type="importmap">

@@ -9,6 +9,11 @@
 
 **Predicting Tomorrow's Tumors from Today's MRI**
 
+### [▶ Live demo](https://enricotazzer.github.io/ORACLE/) · [Guided tour](https://enricotazzer.github.io/ORACLE/brain-viewer/?tour=1) · [Demo script](DEMO.md)
+
+<sub>The tour drives the 3D viewer itself in about 35 seconds — drag at any point to take over.<br/>
+Streams ~54 MB per volume; desktop and WebGL recommended.</sub>
+
 </div>
 
 ---
@@ -23,6 +28,12 @@ ORACLE is an end-to-end deep learning framework for brain tumor analysis that co
 - 📈 Predict tumor evolution and recover patient-specific growth parameters using Physics-Informed Neural Networks (PINNs)
 
 This project addresses the critical clinical need for **early intervention planning** by providing accurate 3D reconstructions and segmentation maps from sparse clinical MRI acquisitions.
+
+**Want to see it rather than read about it?** The [live viewer](https://enricotazzer.github.io/ORACLE/brain-viewer/?tour=1)
+plays itself. To inspect the code path instead, [`demo_full_run_executed.ipynb`](demo_full_run_executed.ipynb)
+is the complete pipeline already executed on one patient, with every figure and output
+retained — no dataset, no checkpoints, no GPU. [`DEMO.md`](DEMO.md) is the script for
+presenting all of it in five minutes.
 
 ---
 
@@ -418,6 +429,11 @@ Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
 > now reports tumour volume, equivalent diameter and predicted growth for each volume.
 > The three original modules and their checkpoints are **unchanged** — Stage 0b is a
 > parallel branch that is skipped cleanly if its checkpoint is absent.
+>
+> **Update — 2026-08 (demo):** the viewer now ships a **guided tour** that drives itself
+> (`?tour=1`), a responsive layout that survives a phone, and a landing page at the site
+> root. `full_pipeline_testing.ipynb` gained a preflight cell so a stranger can attach the
+> two Kaggle mounts and Run All without hitting an opaque failure ten cells in.
 
 **ORACLE is complete.** All three modules are trained, evaluated, and chained into a working
 end-to-end pipeline, and the 3D viewer is deployed. The repository is considered finished as a
@@ -434,6 +450,8 @@ What is done and reproducible today:
 | Tumor growth PINN (inverse Fisher–KPP + UQ) | ✅ Trained, parameters recovered, UQ computed | `models/pinn_tumor_growth.pt` |
 | Closed-loop pipeline (detect → reconstruct → evolve → re-detect → re-reconstruct) | ✅ Runs end-to-end on a patient timepoint | `full_pipeline_testing.ipynb` |
 | Interactive 3D viewer (initial vs. PINN-evolved) | ✅ Built and deployed to GitHub Pages | [`docs/brain-viewer/`](https://enricotazzer.github.io/ORACLE/brain-viewer/) |
+| Guided tour + landing page | ✅ Deployed — self-driving 8-beat walkthrough, responsive down to 390 px | [`docs/index.html`](https://enricotazzer.github.io/ORACLE/), [`docs/brain-viewer/tour.js`](docs/brain-viewer/tour.js) |
+| Executed reference run | ✅ Committed with outputs — renders without any setup | [`demo_full_run_executed.ipynb`](demo_full_run_executed.ipynb) |
 
 ### Known limitations
 

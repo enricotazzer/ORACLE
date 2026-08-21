@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ORACLE — Oncology Reconstruction And Clinical Learning Engine</title>
+<meta name="description" content="An end-to-end deep learning pipeline that classifies, segments and reconstructs brain tumours in 3D, then predicts six months of growth with a physics-informed neural network." />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Research prototype · complete</p>
+    <h1>ORACLE</h1>
+    <p class="expand">Oncology Reconstruction And Clinical Learning Engine</p>
+    <p class="tagline">Predicting tomorrow's tumours from today's MRI.</p>
+
+    <p class="lede">
+      Four models chained end to end: a classifier reads the tumour type, nnU-Net segments it,
+      a GAN reconstructs a dense 3D volume from sparse slices, and a physics-informed network
+      evolves it six months forward — then the segmenter and GAN run again on the predicted
+      future. Both volumes are explorable in the browser.
+    </p>
+
+    <div class="cta-row">
+      <a class="cta cta-primary" href="brain-viewer/">Open the 3D viewer</a>
+      <a class="cta cta-secondary" href="brain-viewer/?tour=1">▶ Watch the guided tour</a>
+    </div>
+    <p class="cta-note">
+      The viewer streams about 54&nbsp;MB per volume and needs WebGL — best on a desktop
+      browser and a decent connection. The tour drives itself; you can grab the model at any
+      point to take over.
+    </p>
+
+    <figure class="hero-fig">
+      <img src="assets/pipeline_still.jpg" width="774" height="256"
+           alt="Three panels: the reconstructed initial volume with a tumour in the right frontal lobe, the same slice predicted 180 days later with a visibly larger tumour, and an overlay marking existing tissue in cyan and newly grown tissue in red." />
+      <figcaption>
+        One axial slice of the closed loop — reconstructed now, predicted at +180 days, and the
+        difference. 96.9&nbsp;mL grows to 170.6&nbsp;mL.
+      </figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<section class="wrap stats-section">
+  <ul class="stats">
+    <li><span class="stat-num">0.84</span><span class="stat-label">Dice<br /><em>segmentation, post-processed</em></span></li>
+    <li><span class="stat-num">27.6<span class="stat-unit">dB</span></span><span class="stat-label">PSNR<br /><em>reconstruction, unknown slices</em></span></li>
+    <li><span class="stat-num">0.980</span><span class="stat-label">Macro F1<br /><em>classifier, group-disjoint split</em></span></li>
+    <li><span class="stat-num">×1.76</span><span class="stat-label">Predicted growth<br /><em>over 180 days</em></span></li>
+  </ul>
+</section>
+
+<section class="wrap">
+  <h2>The pipeline</h2>
+  <p class="section-lede">
+    Each stage consumes the previous stage's output, so the order is fixed. Stage&nbsp;4 closes
+    the loop by feeding the predicted future back through segmentation and reconstruction.
+  </p>
+
+  <ol class="stages">
+    <li>
+      <span class="stage-n">0b</span>
+      <h3>Classify</h3>
+      <p>EfficientNet-B3 over every slice, aggregated on tumour evidence rather than a naive
+         mean. Grad-CAM shows which pixels drove the call.</p>
+      <p class="stage-meta">4 classes · 300² input · <span class="warn-inline">out-of-distribution here</span></p>
+    </li>
+    <li>
+      <span class="stage-n">1</span>
+      <h3>Segment</h3>
+      <p>A custom 2D nnU-Net with deep supervision takes all four MRI modalities and returns a
+         binary tumour mask. Selection used EMA weights, 16-augmentation TTA and morphological
+         post-processing — the same path used at inference.</p>
+      <p class="stage-meta">t1n · t1c · t2w · t2f → mask</p>
+    </li>
+    <li>
+      <span class="stage-n">2</span>
+      <h3>Reconstruct</h3>
+      <p>A Fast2p5D generator, adversarially fine-tuned, predicts each missing slice from a
+         five-slice window plus the Stage-1 mask as a density channel — turning a sparse
+         acquisition into a dense volume.</p>
+      <p class="stage-meta">5 channels · 5-slice window → next slice</p>
+    </li>
+    <li>
+      <span class="stage-n">3</span>
+      <h3>Predict growth</h3>
+      <p>An inverse Fisher–KPP physics-informed network recovers patient-specific diffusion and
+         proliferation parameters from the observed tumour, then integrates them forward.</p>
+      <p class="stage-meta">D<sub>wm</sub>, D<sub>gm</sub>, ρ recovered in log space</p>
+    </li>
+    <li>
+      <span class="stage-n">4</span>
+      <h3>Close the loop</h3>
+      <p>The evolved density is composited back into realistic anatomy, re-segmented by nnU-Net
+         and re-reconstructed by the GAN. The two independent volume estimates agree to 0.5%.</p>
+      <p class="stage-meta">170.6&nbsp;mL predicted · 169.7&nbsp;mL re-segmented</p>
+    </li>
+  </ol>
+</section>
+
+<section class="wrap">
+  <h2>Explainability</h2>
+  <figure>
+    <img src="assets/gradcam_classifier.png" alt="Grad-CAM heatmaps over classified MRI slices, showing activation concentrated on the tumour region for correct predictions." />
+    <figcaption>
+      Grad-CAM on the last 1536-channel block. Correct predictions localise on the lesion; the
+      misclassification panel shows where the model looked when it was wrong.
+    </figcaption>
+  </figure>
+</section>
+
+<section class="wrap">
+  <h2>Why the aggregation matters</h2>
+  <p class="section-lede">
+    Classifying a <em>volume</em> means pooling per-slice predictions, and the obvious choice is
+    wrong. Most slices contain no tumour, so a naive mean is dominated by them — it calls this
+    glioma patient <code>notumor</code> at 64.3%. Ranking slices by tumour evidence and averaging
+    the top ten gives <code>glioma</code> at 74.7%. Both are printed at runtime so the bias stays
+    visible instead of hidden.
+  </p>
+  <figure>
+    <img src="assets/classification_aggregation.png" alt="Left, a histogram of per-slice argmax predictions dominated by the no-tumour class. Right, aggregated class probabilities under top-K pooling favouring glioma." />
+    <figcaption>
+      Left: per-slice argmax histogram — most slices genuinely contain no tumour.
+      Right: top-K aggregated class probabilities.
+    </figcaption>
+  </figure>
+</section>
+
+<section class="wrap">
+  <h2>Read this before the numbers</h2>
+  <div class="caveats">
+    <ul>
+      <li><strong>Not a medical device.</strong> Research and educational use only — not for
+        diagnosis, treatment planning, or any clinical decision-making.</li>
+      <li><strong>The classifier is out of distribution inside the pipeline.</strong> It was
+        trained on pre-operative 2D JPEGs; the cohort it runs on here is 100% glioma and
+        post-operative, with no tumour-type ground truth to score against. Its prediction on
+        this patient is a wiring demonstration carrying no diagnostic weight — flagged as such
+        in the notebook, in <code>metrics.json</code>, and in the viewer.</li>
+      <li><strong>The growth is illustrative, not calibrated.</strong> Stage-4 knobs are tuned
+        for visible change; the physically faithful setting produces much subtler evolution.
+        Predicted volumes have not been validated against follow-up imaging.</li>
+      <li><strong>Single-fold, single-institution evaluation.</strong> One patient-level split,
+        no cross-validation, no external test set.</li>
+      <li><strong>Confidence is uncalibrated</strong> and currently under-confident, a side
+        effect of label smoothing. Read it as a ranking score, not a probability.</li>
+    </ul>
+    <p class="caveats-foot">
+      The classifier's 0.980 macro-F1 comes from a <strong>group-disjoint re-split</strong>, not
+      the dataset's shipped one: every image is fingerprinted with a 256-bit perceptual hash,
+      near-duplicates are grouped with union-find, and no group spans train, validation and test.
+      That is a harder split than most published numbers on this dataset use.
+    </p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Dig in</h2>
+  <ul class="links">
+    <li><a href="https://github.com/enricotazzer/ORACLE">Source on GitHub</a>
+        <span>Seven notebooks, the viewer, and the deploy pipeline.</span></li>
+    <li><a href="https://nbviewer.org/github/enricotazzer/ORACLE/blob/main/demo_full_run_executed.ipynb">The full run, already executed</a>
+        <span>Every stage with its figures and outputs — no setup, no GPU, renders in the browser.</span></li>
+    <li><a href="https://github.com/enricotazzer/ORACLE/blob/main/README.md">README</a>
+        <span>Architecture, results tables, and the complete list of limitations.</span></li>
+    <li><a href="https://github.com/enricotazzer/ORACLE/blob/main/DEMO.md">Demo script</a>
+        <span>How to present this in five minutes, with the honest answers to the obvious questions.</span></li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>ORACLE · a research prototype by <a href="https://github.com/enricotazzer">enricotazzer</a> · MIT licence</p>
+    <p class="footer-dim">Figures generated from a single end-to-end run on <code>PatientID_0003 / Timepoint_1</code> of the MU-Glioma-Post cohort.</p>
+  </div>
+</footer>
+
+</body>
+</html>
