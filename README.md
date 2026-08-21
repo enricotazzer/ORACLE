@@ -40,7 +40,16 @@ Upstream diagnostic branch — *what* the lesion is, and *why* the model says so
 - **Grad-CAM** (`ClsGradCAM`) hooking `backbone.features.8` — the last 1536-channel spatial tensor before pooling. Same hook machinery as the segmenter's `SegGradCAM`; only the scalar objective changes (`logits[0, class_idx]` instead of `(prob · mask).sum()`). Includes a **misclassification panel** — where the model looked when it was *wrong*.
 - Evaluation: accuracy, balanced accuracy, macro-F1, per-class precision/recall/F1, confusion matrix (counts + row-normalised), one-vs-rest ROC-AUC, and hflip-only TTA reported separately — see §10 of the notebook
 
-> ⚠️ Two honest caveats travel with this model: its test split is **not patient-disjoint** from its training split, and applying it inside the ORACLE pipeline is **out-of-distribution**. Both are detailed under [Known limitations](#known-limitations).
+<div align="center">
+<img src="readme_assets/gradcam_classifier.png" width="720" alt="Grad-CAM on a MU-Glioma-Post slice — the CAM localises the enhancing ring lesion"/>
+<br><em>Grad-CAM on a held-out MU-Glioma-Post slice: the activation localises the
+enhancing ring lesion rather than skull or artefact. (Out-of-distribution demo — see below.)</em>
+</div>
+
+> ⚠️ Two caveats travel with this model: it is evaluated on a **re-split** of the data rather
+> than the shipped one (the shipped split is widely reported as leaky), and applying it inside
+> the ORACLE pipeline is **out-of-distribution**. Both are detailed under
+> [Known limitations](#known-limitations).
 
 ### 🎯 2. Tumor Segmentation (`nnUnet.ipynb`)
 
@@ -213,6 +222,75 @@ Inverse-problem PINN that recovers patient-specific growth parameters from spars
 
 ---
 
+## 📊 Results
+
+All figures below come from a single end-to-end run of
+[`full_pipeline_testing.ipynb`](full_pipeline_testing.ipynb) on `PatientID_0003 / Timepoint_1`,
+plus the classifier's own held-out evaluation.
+
+### End-to-end pipeline
+
+| Stage | Model | Result |
+| ----- | ----- | ------ |
+| **0b · Classification** | EfficientNet-B3 + Grad-CAM | `glioma` @ 74.7% — *out-of-distribution demo* |
+| **1 · Segmentation** | nnU-Net 2D (EMA + 16-aug TTA) | mean per-slice Dice **0.802** |
+| **2 · Reconstruction** | Fast2p5D GAN (multi-scale + TTA) | unknown-slice PSNR **27.57 dB**, SSIM **0.906** |
+| **3 · Growth (PINN)** | Inverse Fisher–KPP | `D_wm`=2.67e-06, `D_gm`=3.46e-04, `ρ`=1.24e-04 |
+| **4 · Evolution** | FK PDE → nnU-Net → GAN | **96.9 → 170.6 mL** (×1.8) over 180 days |
+
+The Stage-4 volumes are also what the viewer's metrics panel reports: 96.94 mL initial
+(96,939 voxels, 57.0 mm equivalent diameter) against 170.56 mL evolved. Re-segmenting the
+evolved volume with nnU-Net independently gives 169.66 mL — a 0.5% agreement with the
+Fisher–KPP density estimate, which is a useful consistency check since the two are thresholded
+on entirely different quantities.
+
+### Tumour classification
+
+Evaluated on a **group-disjoint re-split** (see [Known limitations](#known-limitations)), not
+the dataset's shipped split:
+
+| Metric | Value |
+| ------ | ----- |
+| Accuracy | **0.9802** |
+| Balanced accuracy | 0.9798 |
+| Macro F1 | **0.9800** |
+| ROC-AUC (OvR, macro) | **0.9990** |
+
+| Class | Precision | Recall | F1 | Support |
+| ----- | --------- | ------ | -- | ------- |
+| glioma | 0.9943 | 0.9666 | 0.9802 | 359 |
+| meningioma | 0.9612 | 0.9720 | 0.9666 | 357 |
+| notumor | 0.9824 | 0.9949 | 0.9886 | 393 |
+| pituitary | 0.9831 | 0.9859 | 0.9845 | 355 |
+
+29 errors in 1 464 test images; glioma → meningioma is the dominant confusion, which is the
+clinically plausible one. Horizontal-flip TTA changed nothing (0.9802 → 0.9802), so it is
+reported but not used.
+
+### Why the aggregation strategy matters
+
+Classifying a *volume* means aggregating per-slice predictions, and the obvious choice is
+wrong. Most slices in a brain MRI contain no tumour, so a naive mean over all slices is
+dominated by them:
+
+```
+Slices scored: 142   aggregation: top-10 tumour-evidence mean softmax
+  top-10 : glioma=0.747  meningioma=0.060  notumor=0.152  pituitary=0.041
+  naive  : glioma=0.260  meningioma=0.061  notumor=0.643  pituitary=0.036
+```
+
+The naive mean calls a glioma patient **`notumor` at 64.3%**. Ranking slices by tumour
+evidence and averaging the top 10 gives the correct answer at 74.7%. Both are printed at
+runtime so the bias stays visible rather than hidden.
+
+<div align="center">
+<img src="readme_assets/classification_aggregation.png" width="720" alt="Per-slice argmax histogram and aggregated class probabilities"/>
+<br><em>Left: per-slice argmax histogram — most slices genuinely contain no tumour.
+Right: top-K aggregated class probabilities.</em>
+</div>
+
+---
+
 ## 🏗️ Architecture
 
 ### Pipeline Overview
@@ -335,9 +413,11 @@ Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
 
 > **Update — 2026-08:** ORACLE was extended with an upstream tumour-type classification
 > stage (EfficientNet-B3 + Grad-CAM) and a quantitative metrics panel in the 3D viewer.
-> The three original modules and their checkpoints are **unchanged**, and the closed-loop
-> pipeline still runs exactly as described below — Stage 0b is skipped cleanly if its
-> checkpoint is absent.
+> Both are **running end-to-end**: the full pipeline has been executed with all four
+> checkpoints, and the [live viewer](https://enricotazzer.github.io/ORACLE/brain-viewer/)
+> now reports tumour volume, equivalent diameter and predicted growth for each volume.
+> The three original modules and their checkpoints are **unchanged** — Stage 0b is a
+> parallel branch that is skipped cleanly if its checkpoint is absent.
 
 **ORACLE is complete.** All three modules are trained, evaluated, and chained into a working
 end-to-end pipeline, and the 3D viewer is deployed. The repository is considered finished as a
@@ -348,7 +428,7 @@ What is done and reproducible today:
 
 | Component | State | Artifact |
 | --------- | ----- | -------- |
-| Tumour type classification (EfficientNet-B3 + Grad-CAM) | ✅ Trained & evaluated on the dataset's own held-out test split — per-class metrics in `effnet_tumor_classification.ipynb` §10 | `models/best_effnetb3_cls.pth` |
+| Tumour type classification (EfficientNet-B3 + Grad-CAM) | ✅ Trained & evaluated on a group-disjoint re-split — 0.9802 accuracy / 0.9800 macro-F1 | `models/best_effnetb3_cls.pth` |
 | Tumor segmentation (nnU-Net 2D) | ✅ Trained & evaluated — test ≈ 0.84 Dice / 0.80 IoU | `models/best_nnunet2d.pth` |
 | Sparse-to-dense reconstruction (Fast2p5D + GAN) | ✅ Trained through adversarial fine-tuning, evaluated on held-out volumes (PSNR/SSIM) | `models/G_joint_epoch_022.pth`, `models/D_joint_epoch_022.pth` |
 | Tumor growth PINN (inverse Fisher–KPP + UQ) | ✅ Trained, parameters recovered, UQ computed | `models/pinn_tumor_growth.pt` |
@@ -371,11 +451,19 @@ These are intentional scope boundaries of the prototype, not defects to be fixed
   imaging.
 - **UQ is uncalibrated.** MC-Dropout, deep-ensemble, and Laplace intervals are computed and
   reported, but their 95% coverage has not been rigorously calibrated.
-- **Classifier evaluation is optimistic.** `brain-tumor-mri-dataset` aggregates three public
-  sources (figshare, SARTAJ, Br35H); its official `Testing/` split is **not patient-disjoint**
-  from `Training/`, and near-duplicate images exist across the two. The notebook counts the
-  exact byte-identical overlap, but near-duplicates are not caught — read the reported metrics
-  as an **upper bound**, not a generalisation estimate. Softmax confidence is also uncalibrated.
+- **The reported metrics come from a re-split, not the shipped one.** `brain-tumor-mri-dataset`
+  aggregates three public sources (figshare, SARTAJ, Br35H), and its official `Training/` /
+  `Testing/` boundary is widely reported as leaky. Measured here, that boundary contains **zero
+  byte-identical** images — weaker evidence of leakage than the reputation suggests — but
+  byte-equality misses rescaled and recompressed copies, so ORACLE does not rely on the shipped
+  split at all: it pools both folders, fingerprints every image with a 256-bit dHash, groups
+  near-duplicates with union-find, and re-splits by group. Every number below is from that
+  group-disjoint split. What is *not* addressed is patient identity — the source datasets carry
+  no patient IDs, so two different slices of the same patient can still land on opposite sides
+  if they are not near-duplicates of each other.
+- **Softmax confidence is uncalibrated**, and currently *under*-confident (mean max-softmax
+  0.9525 against 0.9802 accuracy — a side effect of 0.05 label smoothing). It is displayed in
+  the 3D viewer, so read it as a ranking score rather than a probability.
 - **Classification inside the pipeline is out-of-distribution.** The classifier is trained on
   *pre-operative* 2D JPEGs across mixed scanners and planes; MU-Glioma-Post is **100 % glioma
   and post-operative**, with no tumour-type ground truth to score against. Its prediction there

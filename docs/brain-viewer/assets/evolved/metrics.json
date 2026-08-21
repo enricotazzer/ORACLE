@@ -1,0 +1,66 @@
+{
+  "schema": "oracle.metrics/1",
+  "generated_at": "2026-08-21T10:43:34Z",
+  "case": {
+    "patient": "PatientID_0003",
+    "timepoint": "Timepoint_1",
+    "dataset": "MU-Glioma-Post"
+  },
+  "voxel": {
+    "spacing_mm": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "volume_mm3": 1.0
+  },
+  "horizon_days": 180.0,
+  "classification": {
+    "label": "glioma",
+    "confidence": 0.7465033531188965,
+    "probabilities": {
+      "glioma": 0.7465033531188965,
+      "meningioma": 0.06038335710763931,
+      "notumor": 0.15190716087818146,
+      "pituitary": 0.041206181049346924
+    },
+    "model": "EfficientNet-B3",
+    "trained_on": "brain-tumor-mri-dataset (4-class, pre-operative)",
+    "out_of_distribution": true,
+    "ood_note": "Trained on pre-operative 4-class JPEGs; applied to post-operative MU-Glioma-Post slices. Demonstration only \u2014 no diagnostic weight.",
+    "aggregation": "top10_tumor_evidence_mean_softmax",
+    "n_slices": 142,
+    "computed_on": "initial"
+  },
+  "provenance": {
+    "notebook": "full_pipeline_testing.ipynb",
+    "seg_ckpt": "best_nnunet2d.pth",
+    "gan_ckpt": "G_joint_epoch_022.pth",
+    "pinn_ckpt": "pinn_tumor_growth.pt",
+    "cls_ckpt": "best_effnetb3_cls.pth"
+  },
+  "variant": "evolved",
+  "label": "Evolved +180d",
+  "tumor": {
+    "voxels": 170555,
+    "volume_mm3": 170555.0,
+    "volume_ml": 170.555,
+    "equivalent_diameter_mm": 68.80530819112514,
+    "threshold": 0.25,
+    "source": "fisher_kpp_density"
+  },
+  "tumor_resegmented": {
+    "voxels": 169660,
+    "volume_mm3": 169660.0,
+    "volume_ml": 169.66,
+    "equivalent_diameter_mm": 68.6847434026805,
+    "threshold": 0.5,
+    "source": "nnunet_tta_postproc"
+  },
+  "growth": {
+    "ratio": 1.759405399271707,
+    "delta_volume_ml": 73.616,
+    "delta_diameter_mm": 11.810761432572356,
+    "reference_variant": "initial"
+  }
+}

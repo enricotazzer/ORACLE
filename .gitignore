@@ -9,3 +9,5 @@
 /brain-gan-viewer/docs
 /.claude
 /viewer_slices
+/pipeline_out
+._*
