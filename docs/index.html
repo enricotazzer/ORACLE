@@ -20,7 +20,8 @@
       Four models chained end to end: a classifier reads the tumour type, nnU-Net segments it,
       a GAN reconstructs a dense 3D volume from sparse slices, and a physics-informed network
       evolves it six months forward — then the segmenter and GAN run again on the predicted
-      future. Both volumes are explorable in the browser.
+      future. Both volumes are explorable in the browser, with the tumour itself rendered in
+      3D inside a translucent brain.
     </p>
 
     <div class="cta-row">
@@ -76,7 +77,7 @@
       <p>A custom 2D nnU-Net with deep supervision takes all four MRI modalities and returns a
          binary tumour mask. Selection used EMA weights, 16-augmentation TTA and morphological
          post-processing — the same path used at inference.</p>
-      <p class="stage-meta">t1n · t1c · t2w · t2f → mask</p>
+      <p class="stage-meta">t1n · t1c · t2w · t2f → mask → 3D surface</p>
     </li>
     <li>
       <span class="stage-n">2</span>
@@ -97,7 +98,9 @@
       <span class="stage-n">4</span>
       <h3>Close the loop</h3>
       <p>The evolved density is composited back into realistic anatomy, re-segmented by nnU-Net
-         and re-reconstructed by the GAN. The two independent volume estimates agree to 0.5%.</p>
+         and re-reconstructed by the GAN. The two independent volume estimates agree to 0.5%.
+         In the viewer this reads directly: cyan is the tumour now, red is what is predicted
+         to be new.</p>
       <p class="stage-meta">170.6&nbsp;mL predicted · 169.7&nbsp;mL re-segmented</p>
     </li>
   </ol>

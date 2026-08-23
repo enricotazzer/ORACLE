@@ -59,6 +59,12 @@ const variantToggle   = document.getElementById('variant-toggle');
 const panelEl         = document.getElementById('panel');
 const panelToggle     = document.getElementById('panel-toggle');
 const metricsToggle   = document.getElementById('metrics-toggle');
+const tumorGroupEl    = document.getElementById('tumor-group');
+const tumorDivider    = document.getElementById('tumor-divider');
+const tumorToggle     = document.getElementById('tumor-toggle');
+const tumorOpSlider   = document.getElementById('tumor-opacity-slider');
+const tumorOpVal      = document.getElementById('tumor-opacity-val');
+const tumorLegend     = document.getElementById('tumor-legend');
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -100,6 +106,11 @@ scene.add(rimLight);
 // Initialised to a safe default (keeps everything).
 const clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1e9);
 
+// The tumour is cut fractionally deeper than the brain. Its cross-section would
+// otherwise be exactly coplanar with the MRI slice quad and z-fight with it.
+const TUMOR_CLIP_EPS = 0.6;   // mm
+const tumorClipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1e9);
+
 // ── Per-axis configuration ────────────────────────────────────────────────────
 // normal points in the -dim direction so the plane keeps dim ≤ worldPos.
 const AXIS_CFG = {
@@ -108,14 +119,21 @@ const AXIS_CFG = {
   sagittal: { dim: 'z', normal: new THREE.Vector3( 0,  0, -1) },
 };
 
+// Shell opacity used whenever the tumour layer is on: opaque enough to read as
+// a brain, sheer enough to see the tumour suspended inside it.
+const SHELL_OPACITY_WITH_TUMOR = 0.35;
+
 // ── App state ─────────────────────────────────────────────────────────────────
 const state = {
   axis:       'axial',
   clipT:      1.0,          // 1 = no cut, 0 = fully cut
-  opacity:    1.0,
+  opacity:    SHELL_OPACITY_WITH_TUMOR,
   contrast:   1.0,
   brightness: 1.0,
   autoRotate: false,
+  showTumor:  true,         // tumour visible on load; the shell dims to suit
+  tumorOpacity: 1.0,
+  hasTumor:   false,        // whether this variant shipped a tumour mesh at all
   meta:       null,
   metrics:    null,         // assets/<variant>/metrics.json (optional, may be null)
   brainBox:   null,
@@ -129,6 +147,8 @@ function vbase() { return state.variants[state.variant].base; }
 function vid()   { return state.variants[state.variant].id; }
 
 let brainGroup = null;    // THREE.Group from GLTFLoader
+let tumorGroup  = null;   // tumour as it is now        (cyan)
+let growthGroup = null;   // tissue predicted to be new (red), evolved variant only
 let sliceQuad  = null;    // PlaneGeometry quad showing MRI at cut position
 const texCache = {};      // "axis_idx" → THREE.Texture
 const texLoader = new THREE.TextureLoader();
@@ -247,12 +267,34 @@ async function updateScene() {
   clipPlane.normal.copy(normal);    // already points in -dim direction
   clipPlane.constant = worldPos;
 
+  // Cut the tumour marginally deeper so its cross-section sits just behind the
+  // slice quad rather than coplanar with it.
+  tumorClipPlane.normal.copy(normal);
+  tumorClipPlane.constant = worldPos - TUMOR_CLIP_EPS;
+
   // ── 2. Shell opacity
   brainGroup.traverse((child) => {
     if (!child.isMesh) return;
     child.material.opacity     = state.opacity;
     child.material.transparent = state.opacity < 1.0;
+    // A transparent DoubleSide shell that still writes depth self-occludes and
+    // culls whatever is inside it. Drop depth writes while it is see-through,
+    // and draw it after the tumour so the blend lands on top.
+    child.material.depthWrite  = state.opacity >= 1.0;
+    child.renderOrder          = 1;
   });
+
+  // ── 2b. Tumour layer
+  for (const g of [tumorGroup, growthGroup]) {
+    if (!g) continue;
+    g.visible = state.showTumor;
+    g.traverse((child) => {
+      if (!child.isMesh) return;
+      child.material.opacity     = state.tumorOpacity;
+      child.material.transparent = state.tumorOpacity < 1.0;
+      child.material.depthWrite  = state.tumorOpacity >= 1.0;
+    });
+  }
 
   // ── 3. Slice quad
   if (!sliceQuad) return;
@@ -345,6 +387,69 @@ function loadBrainGLB() {
   });
 }
 
+/* ── Tumour meshes (optional) ──────────────────────────────────────────────
+   assets/<variant>/tumor_surface.glb  — the tumour as it is now, cyan
+   assets/<variant>/tumor_growth.glb   — tissue the PINN predicts, red
+   Both optional, exactly like metrics.json: a 404 means this variant has no
+   tumour layer, never an error and never a blocked brain mesh. The GLBs carry
+   flat vertex colours baked by generate_brain.py, so the material only has to
+   respect them.                                                            */
+function loadTumorGLB(file) {
+  return new Promise((resolve) => {
+    new GLTFLoader().load(
+      asset(vbase() + file),
+      (gltf) => {
+        gltf.scene.traverse((child) => {
+          if (!child.isMesh) return;
+          child.material = new THREE.MeshStandardMaterial({
+            vertexColors:   child.geometry.attributes.color !== undefined,
+            color:          new THREE.Color(0xffffff),
+            roughness:      0.45,
+            metalness:      0.0,
+            emissive:       new THREE.Color(0x101820),
+            side:           THREE.DoubleSide,
+            clippingPlanes: [tumorClipPlane],
+            clipShadows:    true,
+          });
+          // Drawn before the shell and writing depth, so the translucent brain
+          // blends over it instead of culling it.
+          child.renderOrder = 0;
+          child.material.depthWrite = true;
+        });
+        resolve(gltf.scene);
+      },
+      undefined,
+      () => resolve(null),        // 404 or parse failure → no tumour layer
+    );
+  });
+}
+
+// Show/hide the tumour control group and build its legend from metrics.json,
+// whose tumor.volume_ml / growth.delta_volume_ml are the same numbers the
+// quantitative panel is already displaying.
+function renderTumorControls() {
+  const on = state.hasTumor;
+  if (tumorGroupEl) tumorGroupEl.style.display = on ? '' : 'none';
+  if (tumorDivider) tumorDivider.style.display = on ? '' : 'none';
+  if (!on || !tumorLegend) return;
+
+  const m = state.metrics || {};
+  const rows = [];
+  const nowMl = m.tumor && typeof m.tumor.volume_ml === 'number'
+    ? (growthGroup ? m.tumor.volume_ml - (m.growth ? m.growth.delta_volume_ml : 0)
+                   : m.tumor.volume_ml)
+    : null;
+  rows.push(['#7ec8c8', 'Current',
+             Number.isFinite(nowMl) ? nowMl.toFixed(1) + ' mL' : '']);
+  if (growthGroup && m.growth && typeof m.growth.delta_volume_ml === 'number') {
+    rows.push(['#ff6a6a', 'New growth', '+' + m.growth.delta_volume_ml.toFixed(1) + ' mL']);
+  }
+  tumorLegend.innerHTML = rows.map(([c, name, val]) =>
+    `<div class="legend-row"><span class="legend-dot" style="background:${c}"></span>` +
+    `<span class="legend-name">${name}</span><span class="legend-val">${val}</span></div>`
+  ).join('');
+}
+
 // ── Fit camera to bounding box ────────────────────────────────────────────────
 function fitCamera(box) {
   const center = new THREE.Vector3();
@@ -390,16 +495,22 @@ function buildVariantUI() {
   });
 }
 
-function disposeBrain() {
-  if (!brainGroup) return;
-  scene.remove(brainGroup);
-  brainGroup.traverse((c) => {
+function disposeGroup(g) {
+  if (!g) return;
+  scene.remove(g);
+  g.traverse((c) => {
     if (!c.isMesh) return;
     c.geometry.dispose();
     if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
     else c.material.dispose();
   });
-  brainGroup = null;
+}
+
+function disposeBrain() {
+  disposeGroup(brainGroup);
+  disposeGroup(tumorGroup);
+  disposeGroup(growthGroup);
+  brainGroup = tumorGroup = growthGroup = null;
 }
 
 // Load (or hot-swap to) a variant. keepView=true preserves camera + clip so the
@@ -591,10 +702,25 @@ async function loadVariant(index, keepView) {
   brainGroup = await loadBrainGLB();
   scene.add(brainGroup);
 
+  // Tumour layer — resolves to null when this variant has no mesh, in which
+  // case the controls stay hidden and everything else behaves as before.
+  setLoadingMsg('Loading tumour mesh…');
+  [tumorGroup, growthGroup] = await Promise.all([
+    loadTumorGLB('tumor_surface.glb'),
+    loadTumorGLB('tumor_growth.glb'),
+  ]);
+  if (tumorGroup)  scene.add(tumorGroup);
+  if (growthGroup) scene.add(growthGroup);
+  state.hasTumor = !!(tumorGroup || growthGroup);
+  renderTumorControls();
+
   const box = new THREE.Box3().setFromObject(brainGroup);
   state.brainBox = box;
   if (!keepView) fitCamera(box);
   rebuildSliceQuad(box, state.axis);
+
+  // Without a tumour there is nothing to see through the shell, so open opaque.
+  setShellOpacity(state.hasTumor ? SHELL_OPACITY_WITH_TUMOR : 1.0);
 
   setLoadingMsg('Preloading textures…');
   const nPre = Math.min(6, getSliceCount(state.axis));
@@ -621,8 +747,8 @@ async function switchVariant(index) {
    directly, so the tour cannot desynchronise the panel from the scene.    */
 export const tourApi = {
   state, camera, controls,
-  fitCamera, switchVariant, openMetricsDrawer, closeDrawers,
-  els: { clipSlider, axisBtns, autoRotateToggle },
+  fitCamera, switchVariant, openMetricsDrawer, closeDrawers, setShellOpacity,
+  els: { clipSlider, axisBtns, autoRotateToggle, opacitySlider, tumorToggle },
 };
 
 // ── Initialise ────────────────────────────────────────────────────────────────
@@ -699,6 +825,24 @@ autoRotateToggle.addEventListener('change', () => {
   state.autoRotate = autoRotateToggle.checked;
 });
 
+if (tumorToggle) tumorToggle.addEventListener('change', () => {
+  state.showTumor = tumorToggle.checked;
+  // Hiding the tumour has no reason to keep the brain see-through; showing it
+  // again would be pointless behind an opaque shell. Move the shell with it,
+  // unless the user has already dialled in something of their own.
+  const target = state.showTumor ? SHELL_OPACITY_WITH_TUMOR : 1.0;
+  const wasDefault = Math.abs(state.opacity -
+    (state.showTumor ? 1.0 : SHELL_OPACITY_WITH_TUMOR)) < 0.01;
+  if (wasDefault) setShellOpacity(target);
+  updateScene();
+});
+
+if (tumorOpSlider) tumorOpSlider.addEventListener('input', () => {
+  state.tumorOpacity = parseInt(tumorOpSlider.value, 10) / 100;
+  tumorOpVal.textContent = tumorOpSlider.value + '%';
+  updateScene();
+});
+
 axisBtns.forEach(btn => {
   btn.addEventListener('click', () => {
     if (!AXIS_CFG[btn.dataset.axis]) return;
@@ -713,11 +857,25 @@ axisBtns.forEach(btn => {
   });
 });
 
+// Keep the shell slider, its label and state in one place — three call sites
+// set it now (reset, the tumour toggle, and first load).
+function setShellOpacity(v) {
+  state.opacity = v;
+  const pct = Math.round(v * 100);
+  opacitySlider.value = String(pct);
+  opacityVal.textContent = pct + '%';
+}
+
 resetBtn.addEventListener('click', () => {
   if (!state.brainBox) return;
   fitCamera(state.brainBox);
-  clipSlider.value = '100';    state.clipT    = 1.0;  clipVal.textContent    = '100%';
-  opacitySlider.value = '100'; state.opacity  = 1.0;  opacityVal.textContent = '100%';
+  clipSlider.value = '100';    state.clipT = 1.0;  clipVal.textContent = '100%';
+  setShellOpacity(state.hasTumor ? SHELL_OPACITY_WITH_TUMOR : 1.0);
+  if (tumorToggle) { tumorToggle.checked = true; state.showTumor = true; }
+  if (tumorOpSlider) {
+    tumorOpSlider.value = '100'; state.tumorOpacity = 1.0;
+    tumorOpVal.textContent = '100%';
+  }
   updateScene();
 });
 

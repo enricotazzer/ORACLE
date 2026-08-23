@@ -95,6 +95,11 @@ html, body {
   top: 16px;
   right: 16px;
   width: var(--panel-w);
+  /* The tumour group pushes this past ~600px; short viewports (1024x640 and
+     similar) would otherwise run the buttons off the bottom of the screen.
+     Matches what #metrics-panel already does on the left rail. */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -593,4 +598,33 @@ body.tour-active #info-strip { display: none; }
     box-shadow: 0 0 0 5px rgba(126, 200, 200, 0.10);
     background: rgba(126, 200, 200, 0.10);
   }
+}
+
+/* ─── Tumour layer legend ────────────────────────────────────────────────
+   Values come from metrics.json, so they are the same numbers the
+   quantitative panel shows — cyan + red add up to the evolved total.      */
+.tumor-legend { margin-top: 10px; }
+.tumor-legend:empty { display: none; }
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 0 5px currentColor;
+}
+.legend-name { flex: 1; }
+.legend-val {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }

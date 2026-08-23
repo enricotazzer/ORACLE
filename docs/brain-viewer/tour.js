@@ -89,6 +89,25 @@ function setAxis(axis) {
   if (btn && !btn.classList.contains('active')) btn.click();   // also resets clip to 100%
 }
 
+function setTumor(on) {
+  const el = api.els.tumorToggle;
+  if (!el || el.checked === on) return;
+  el.checked = on;
+  el.dispatchEvent(new Event('change'));
+}
+
+// Straight through app.js's setter so slider, label and state stay in step.
+function setShell(v) {
+  if (!api.setShellOpacity) return;
+  api.setShellOpacity(v);
+}
+
+async function shellTo(v, ms = 1200) {
+  const from = api.state.opacity;
+  if (Math.abs(from - v) < 0.01) return;
+  await tween(ms, e => setShell(lerp(from, v, e)));
+}
+
 function setAutoRotate(on) {
   const el = api.els.autoRotateToggle;
   if (!el || el.checked === on) return;
@@ -167,6 +186,8 @@ const ALL_BEATS = [
       setAutoRotate(false);
       setAxis('axial');
       setSlider(api.els.clipSlider, 100);
+      setTumor(true);                            // pin the defaults: a second run
+      setShell(0.35);                            // must not inherit the first's state
       api.fitCamera(api.state.brainBox);
       setAutoRotate(true);                       // spin only once the camera has settled
     },
@@ -225,6 +246,19 @@ const ALL_BEATS = [
     },
   },
   {
+    title: 'The shape itself',
+    need: () => !!api.state.hasTumor,
+    body: () => 'Not a bright patch on a slice — the segmentation mask meshed and ' +
+                'placed back in the volume. The brain fades so you can see it whole.',
+    dwell: 900,
+    async run() {
+      setAutoRotate(false);
+      setTumor(true);
+      await Promise.all([shellTo(0.10, 1400), camTo([0.8, 0.35, 1.0], 1.25, 1400)]);
+      setAutoRotate(true);
+    },
+  },
+  {
     title: 'What the classifier saw',
     need: () => !!(api.state.metrics && api.state.metrics.classification),
     body: () => {
@@ -248,6 +282,7 @@ const ALL_BEATS = [
     dwell: 2000,
     async run() {
       setAutoRotate(false);
+      await shellTo(0.30, 700);
       await api.switchVariant(1);                // keepView: true — grows in place
     },
   },
@@ -263,7 +298,10 @@ const ALL_BEATS = [
       const delta = num(g.delta_volume_ml, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' mL', '—');
       const days  = num(m.horizon_days, v => v.toFixed(0) + ' days', 'the horizon');
       const check = num(r.volume_ml, v => ` Re-segmenting independently gives ${v.toFixed(1)} mL.`, '');
-      return `${ratio}, ${delta} over ${days}.${check}`;
+      const key = api.state.hasTumor
+        ? ' <b>Cyan</b> is the tumour today; <b>red</b> is what the PINN predicts will be new.'
+        : '';
+      return `${ratio}, ${delta} over ${days}.${check}${key}`;
     },
     dwell: 700,
     async run() {

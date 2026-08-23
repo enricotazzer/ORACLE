@@ -11,7 +11,7 @@
 
 ### [▶ Live demo](https://enricotazzer.github.io/ORACLE/) · [Guided tour](https://enricotazzer.github.io/ORACLE/brain-viewer/?tour=1) · [Demo script](DEMO.md)
 
-<sub>The tour drives the 3D viewer itself in about 35 seconds — drag at any point to take over.<br/>
+<sub>The tour drives the 3D viewer itself in about 40 seconds — drag at any point to take over.<br/>
 Streams ~54 MB per volume; desktop and WebGL recommended.</sub>
 
 </div>
@@ -430,9 +430,11 @@ Generated end-to-end by <code>full_pipeline_testing.ipynb</code>.</em>
 > The three original modules and their checkpoints are **unchanged** — Stage 0b is a
 > parallel branch that is skipped cleanly if its checkpoint is absent.
 >
-> **Update — 2026-08 (demo):** the viewer now ships a **guided tour** that drives itself
-> (`?tour=1`), a responsive layout that survives a phone, and a landing page at the site
-> root. `full_pipeline_testing.ipynb` gained a preflight cell so a stranger can attach the
+> **Update — 2026-08 (demo):** the viewer now renders the **tumour itself in 3D** —
+> the segmentation mask meshed and placed back in the volume, cyan for the current tumour
+> and red for the PINN-predicted growth shell, inside a translucent brain. It also ships a
+> **guided tour** that drives itself (`?tour=1`), a responsive layout that survives a phone,
+> and a landing page at the site root. `full_pipeline_testing.ipynb` gained a preflight cell so a stranger can attach the
 > two Kaggle mounts and Run All without hitting an opaque failure ten cells in.
 
 **ORACLE is complete.** All three modules are trained, evaluated, and chained into a working
@@ -450,7 +452,8 @@ What is done and reproducible today:
 | Tumor growth PINN (inverse Fisher–KPP + UQ) | ✅ Trained, parameters recovered, UQ computed | `models/pinn_tumor_growth.pt` |
 | Closed-loop pipeline (detect → reconstruct → evolve → re-detect → re-reconstruct) | ✅ Runs end-to-end on a patient timepoint | `full_pipeline_testing.ipynb` |
 | Interactive 3D viewer (initial vs. PINN-evolved) | ✅ Built and deployed to GitHub Pages | [`docs/brain-viewer/`](https://enricotazzer.github.io/ORACLE/brain-viewer/) |
-| Guided tour + landing page | ✅ Deployed — self-driving 8-beat walkthrough, responsive down to 390 px | [`docs/index.html`](https://enricotazzer.github.io/ORACLE/), [`docs/brain-viewer/tour.js`](docs/brain-viewer/tour.js) |
+| Guided tour + landing page | ✅ Deployed — self-driving 9-beat walkthrough, responsive down to 390 px | [`docs/index.html`](https://enricotazzer.github.io/ORACLE/), [`docs/brain-viewer/tour.js`](docs/brain-viewer/tour.js) |
+| 3D tumour + growth meshes | ✅ Built — marching cubes over the segmentation mask, volume-checked against `metrics.json` at build time | `generate_brain.py --tumor_dir/--growth_dir` |
 | Executed reference run | ✅ Committed with outputs — renders without any setup | [`demo_full_run_executed.ipynb`](demo_full_run_executed.ipynb) |
 
 ### Known limitations

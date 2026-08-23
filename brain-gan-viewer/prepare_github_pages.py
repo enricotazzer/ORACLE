@@ -84,6 +84,13 @@ def verify_assets(deploy_dst: Path) -> bool:
         # deployment that predates the metrics panel. Report-only, by design.
         m = root / "metrics.json"
         print(f"  [{'ok' if m.exists() else '--'}]  {tag}/metrics.json (optional)")
+        # Same reasoning for the tumour meshes: absent means this variant has no
+        # tumour layer, which is a perfectly good viewer. Report-only.
+        for fname in ("tumor_surface.glb", "tumor_growth.glb"):
+            t = root / fname
+            if t.exists():
+                print(f"  [ok]  {tag}/{fname} (optional, "
+                      f"{t.stat().st_size / 1024:.0f} KB)")
         n = len(list((root / "slices").glob("**/*.png"))) if (root / "slices").exists() else 0
         print(f"  [{'ok' if n else '!!'}]  {tag}: {n} slice PNGs")
         ok = ok and n > 0

@@ -172,16 +172,24 @@ def _taubin_smooth(mesh: trimesh.Trimesh,
 
 
 def build_mesh(mask: np.ndarray,
-               volume_norm: np.ndarray,
+               volume_norm: np.ndarray = None,
                pixel_spacing: float = 1.0,
                slice_thickness: float = 1.0,
                step_size: int = 1,
                smooth_sigma: float = 1.5,
                taubin_iterations: int = 25,
-               decimate_fraction: float = 0.85) -> trimesh.Trimesh:
+               decimate_fraction: float = 0.85,
+               vertex_color: tuple = None) -> trimesh.Trimesh:
     """
     Smoothed scalar field → marching cubes → Taubin smooth → clean → decimate.
+
+    vertex_color: pass an (R, G, B) 0-255 tuple to paint the mesh a flat colour
+    and skip the MRI intensity sampling entirely — used for the tumour meshes,
+    which are solid-coloured overlays rather than textured anatomy. When it is
+    None, volume_norm is required and supplies per-vertex greyscale.
     """
+    if vertex_color is None and volume_norm is None:
+        raise ValueError("build_mesh needs volume_norm unless vertex_color is given")
     print("[mesh] Pre-smoothing mask field …")
     from scipy.ndimage import gaussian_filter
     field = gaussian_filter(mask.astype(np.float32), sigma=smooth_sigma)
@@ -214,7 +222,10 @@ def build_mesh(mask: np.ndarray,
         target = max(500, int(len(mesh.faces) * decimate_fraction))
         print(f"[mesh] Decimating to {target} faces …")
         try:
-            mesh = mesh.simplify_quadric_decimation(target)
+            # Keyword, not positional: trimesh's first positional parameter is
+            # `percent` (0-1), so passing a face count here raised and the
+            # decimation was silently skipped.
+            mesh = mesh.simplify_quadric_decimation(face_count=target)
         except Exception as e:
             print(f"[mesh] Decimation warning: {e} — skipping")
 
@@ -222,7 +233,16 @@ def build_mesh(mask: np.ndarray,
     mesh.remove_unreferenced_vertices()
     trimesh.repair.fix_normals(mesh)
 
-    # ── Vertex colours from MRI intensity ─────────────────────────────────
+    # ── Vertex colours ────────────────────────────────────────────────────
+    if vertex_color is not None:
+        r, g, b = (int(c) for c in vertex_color)
+        vertex_colors = np.tile(
+            np.array([r, g, b, 255], dtype=np.uint8), (len(mesh.vertices), 1))
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=vertex_colors)
+        print(f"[mesh] Final mesh: {len(mesh.vertices)} verts, {len(mesh.faces)} faces "
+              f"(flat colour {r},{g},{b})")
+        return mesh
+
     # Sample volume_norm at each vertex via trilinear interpolation so the
     # GLB carries per-vertex colour, giving the cortex realistic MRI texture.
     print("[mesh] Sampling MRI intensity at vertices …")
@@ -251,6 +271,153 @@ def build_mesh(mask: np.ndarray,
 
     print(f"[mesh] Final mesh: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
     return mesh
+
+
+# ──────────────────── 4b. TUMOUR MESHES (optional) ────────────────────────
+
+# Cyan = the tumour as it is now; red = tissue the PINN predicts will be new.
+# Same encoding the pipeline's initial-vs-evolved GIF uses in 2D, and the same
+# hues as the viewer's --accent2 / evolved-variant tint.
+TUMOR_COLORS = {
+    "tumor":  (126, 200, 200),      # #7ec8c8
+    "growth": (255, 106, 106),      # #ff6a6a
+}
+
+
+def build_tumor_mesh(mask_dir: Path,
+                     kind: str,
+                     pixel_spacing: float,
+                     slice_thickness: float,
+                     field_sigma: float,
+                     taubin_iterations: int,
+                     decimate_fraction: float):
+    """Marching-cubes mesh over a binary mask stack, flat-coloured by `kind`.
+
+    Alignment is automatic: build_mesh maps vertices to voxel_index * spacing
+    with no centering, so a mask of the same (Z, H, W) at the same spacing lands
+    in the brain mesh's frame with no transform.
+
+    Returns (mesh, n_voxels) or (None, 0) if the mask is empty.
+    """
+    volume, _ = load_slices(mask_dir)
+    mask = volume > 127
+    n_vox = int(mask.sum())
+    if n_vox == 0:
+        print(f"[tumor] WARNING: {mask_dir} contains no set voxels — skipping {kind}")
+        return None, 0
+
+    n_cc = int(ndimage.label(mask)[1])
+    print(f"[tumor] {kind}: {n_vox:,} voxels in {n_cc} connected component(s)")
+    if n_cc > 12:
+        print(f"[tumor] NOTE: {n_cc} components — the mesh will contain speckle. "
+              "That reflects the mask; it is not a meshing artefact.")
+
+    # Pad one empty voxel on every face before marching cubes. A tumour touching
+    # the volume boundary otherwise yields an OPEN surface: not watertight, so
+    # trimesh cannot compute a volume and the check below silently skips — which
+    # is precisely the check that stops us shipping a mesh that contradicts the
+    # voxel count in metrics.json.
+    mask = np.pad(mask, 1, mode="constant", constant_values=False)
+
+    mesh = build_mesh(
+        mask,
+        pixel_spacing=pixel_spacing,
+        slice_thickness=slice_thickness,
+        smooth_sigma=field_sigma,
+        taubin_iterations=taubin_iterations,
+        decimate_fraction=decimate_fraction,
+        vertex_color=TUMOR_COLORS[kind],
+    )
+    # Undo the pad so the mesh sits in the brain mesh's frame.
+    mesh.vertices -= np.array([slice_thickness, pixel_spacing, pixel_spacing])
+
+    # The viewer shows this mesh next to an exact voxel count in metrics.json.
+    # Gaussian pre-smoothing then thresholding is only approximately volume-
+    # preserving, and a small structure feels it far more than a whole brain —
+    # so report the discrepancy loudly rather than shipping a contradiction.
+    voxel_mm3 = pixel_spacing * pixel_spacing * slice_thickness
+    mask_mm3 = n_vox * voxel_mm3
+    mesh_mm3 = abs(float(mesh.volume))
+    err = (mesh_mm3 - mask_mm3) / max(mask_mm3, 1e-9) * 100.0
+
+    # Decimation can leave a handful of unpaired edges on a speckled mask even
+    # when the surface looks closed. The divergence-theorem volume stays accurate
+    # while that boundary is small, so report the number with its trustworthiness
+    # rather than refusing to report at all.
+    if mesh.is_watertight:
+        trust = "watertight"
+    else:
+        uniq, inv = trimesh.grouping.unique_rows(mesh.edges_sorted)
+        edge_use = np.bincount(inv, minlength=len(uniq))
+        n_open = int((edge_use == 1).sum())
+        n_nonmanifold = int((edge_use > 2).sum())
+        bits = []
+        if n_open:
+            bits.append(f"{n_open} open edge(s)")
+        if n_nonmanifold:
+            bits.append(f"{n_nonmanifold} non-manifold edge(s)")
+        trust = (", ".join(bits) or "not watertight") + " — volume approximate"
+    flag = "" if abs(err) <= 5.0 else "   <-- >5%, lower --tumor_field_sigma"
+    print(f"[tumor] {kind} volume: mesh {mesh_mm3/1000:.2f} mL vs "
+          f"mask {mask_mm3/1000:.2f} mL  ({err:+.1f}%)  [{trust}]{flag}")
+    return mesh, n_vox
+
+
+def build_tumor_meshes(output_dir: Path, args) -> dict:
+    """Write tumor_surface.glb / tumor_growth.glb when their mask stacks are
+    given. Both are optional the same way metrics.json is: absent means the
+    viewer simply has no tumour layer."""
+    out = {}
+    for kind, arg, fname in (("tumor",  args.tumor_dir,  "tumor_surface.glb"),
+                             ("growth", args.growth_dir, "tumor_growth.glb")):
+        if not arg:
+            continue
+        src = Path(arg)
+        if not src.is_dir():
+            print(f"[tumor] WARNING: --{kind}_dir not found: {src} — skipping")
+            continue
+        mesh, n_vox = build_tumor_mesh(
+            src, kind,
+            pixel_spacing=args.pixel_spacing,
+            slice_thickness=args.slice_thickness,
+            field_sigma=args.tumor_field_sigma,
+            taubin_iterations=args.taubin_iter,
+            decimate_fraction=args.tumor_decimate,
+        )
+        if mesh is None:
+            continue
+        path = output_dir / fname
+        mesh.export(str(path))
+        size_kb = path.stat().st_size / 1024
+        print(f"[tumor] Exported {path}  ({size_kb:.0f} KB)")
+        out[kind] = {
+            "file": fname,
+            "voxels": n_vox,
+            "vertices": len(mesh.vertices),
+            "faces": len(mesh.faces),
+            "bbox_min": mesh.bounds[0].tolist(),
+            "bbox_max": mesh.bounds[1].tolist(),
+        }
+    return out
+
+
+def merge_tumor_meta(output_dir: Path, blocks: dict) -> None:
+    """Add/replace the `tumor` block in an existing volume_meta.json without
+    touching anything else — --tumor_only must not rewrite the volume or slice
+    metadata it did not compute."""
+    if not blocks:
+        return
+    meta_path = output_dir / "volume_meta.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception as e:
+            print(f"[tumor] WARNING: could not parse {meta_path} ({e}) — writing fresh")
+            meta = {}
+    meta["tumor"] = blocks
+    meta_path.write_text(json.dumps(meta, indent=2))
+    print(f"[tumor] Updated {meta_path}")
 
 
 # ─────────────────────────── 5. EXPORT SLICES ─────────────────────────────
@@ -565,6 +732,22 @@ def run(args):
     output_dir = (assets_root / variant) if variant else assets_root
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Tumour-only fast path ────────────────────────────────────────────
+    # The tumour meshes depend on neither volume_norm nor the brain mask, so
+    # they can be added to an existing build without rebuilding brain_surface.glb
+    # and 384 slice PNGs — 54 MB of churn per variant for geometry that did not
+    # change. This is the supported way to add a tumour to a deployed variant.
+    if args.tumor_only:
+        if not (args.tumor_dir or args.growth_dir):
+            raise SystemExit("--tumor_only needs --tumor_dir and/or --growth_dir")
+        if not output_dir.exists():
+            raise SystemExit(f"--tumor_only expects an existing assets dir: {output_dir}")
+        blocks = build_tumor_meshes(output_dir, args)
+        merge_tumor_meta(output_dir, blocks)
+        print("\n[done] Tumour meshes written; no other asset was touched.")
+        print(f"       Assets: {output_dir}")
+        return
+
     # 1. Load
     volume_raw, _ = load_slices(input_dir)
 
@@ -588,6 +771,9 @@ def run(args):
     mesh.export(str(glb_path))
     print(f"[mesh] Exported {glb_path}")
 
+    # 4b. Tumour meshes (optional)
+    tumor_blocks = build_tumor_meshes(output_dir, args)
+
     # 5. Slices — export all three axes so the viewer supports any cut direction
     slices_by_axis = export_all_slices(volume_norm, mask, output_dir,
                                        max_slices=args.max_slices,
@@ -597,6 +783,7 @@ def run(args):
     # 6. Metadata
     save_metadata(output_dir, volume_norm, mask, mesh, slices_by_axis,
                   args.pixel_spacing, args.slice_thickness, args.axis)
+    merge_tumor_meta(output_dir, tumor_blocks)
 
     # 7. Previews
     save_previews(volume_norm, mask, output_dir)
@@ -635,6 +822,24 @@ def parse_args():
                         "and registers it in manifest.json. Empty = legacy flat assets/.")
     p.add_argument("--variant_label",      default="",
                    help="Human-readable label shown in the viewer toggle (e.g. 'Evolved +180 d')")
+    p.add_argument("--tumor_dir",          default="",
+                   help="Binary mask PNG stack (same Z/H/W as --input_dir) meshed as the "
+                        "tumour and written to tumor_surface.glb. Optional — absent means "
+                        "the viewer simply shows no tumour layer.")
+    p.add_argument("--growth_dir",         default="",
+                   help="Binary mask PNG stack of NEW tissue only, written to "
+                        "tumor_growth.glb and drawn red beside the cyan tumour.")
+    p.add_argument("--tumor_decimate",     type=float, default=0.5,
+                   help="Face-keep fraction for tumour meshes. Lower than the brain's 0.85 "
+                        "because a compact blob needs far fewer faces than folded cortex.")
+    p.add_argument("--tumor_field_sigma",  type=float, default=0.8,
+                   help="Pre-marching-cubes Gaussian sigma for tumour masks. Below the "
+                        "brain's 1.5: a small structure loses proportionally more volume "
+                        "to smoothing, and the mesh must match the reported voxel count.")
+    p.add_argument("--tumor_only",         action="store_true",
+                   help="Build ONLY the tumour meshes into an existing assets/<variant>/ "
+                        "directory. Leaves brain_surface.glb, the slice PNGs and the volume "
+                        "metadata untouched.")
     p.add_argument("--metrics_json",       default="",
                    help="Optional path to a metrics.json (schema 'oracle.metrics/1', see "
                         "metrics.example.json) copied to assets/<variant>/metrics.json. "

@@ -38,6 +38,25 @@
     <div class="variant-toggle" id="variant-toggle"></div>
   </div>
 
+  <!-- Tumour layer — hidden until assets/<variant>/tumor_surface.glb loads -->
+  <div class="control-group" id="tumor-group" style="display:none">
+    <div class="toggle-row" style="margin-bottom:8px">
+      Tumour
+      <label class="toggle-switch">
+        <input type="checkbox" id="tumor-toggle" checked />
+        <div class="toggle-track"></div>
+      </label>
+    </div>
+    <div class="control-label">
+      Tumour opacity
+      <span class="control-value" id="tumor-opacity-val">100%</span>
+    </div>
+    <input type="range" id="tumor-opacity-slider" min="10" max="100" value="100" step="1" />
+    <div class="tumor-legend" id="tumor-legend"></div>
+  </div>
+
+  <div class="divider" id="tumor-divider" style="display:none"></div>
+
   <!-- Axis -->
   <div class="control-group">
     <div class="control-label">Clip axis</div>

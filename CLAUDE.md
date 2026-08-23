@@ -112,6 +112,17 @@ Kaggle notebooks default to **Internet OFF**, and without it torchvision cannot 
 - `voxel.spacing_mm` is the **native NIfTI grid** (`header.get_zooms()[:3]`). `volume_meta.json`'s `pixel_spacing_mm` describes the viewer's 256² resampled *display* grid. They are different quantities — **never reconcile them.**
 - Writers must wrap values in `float()`/`int()` (numpy scalars aren't JSON-serializable) and guarantee finiteness — `json.dumps` emits bare `NaN`/`Infinity`, which is invalid JSON and makes `JSON.parse` throw in the browser.
 
+## Tumour mesh contract
+
+`assets/<variant>/tumor_surface.glb` (cyan, the tumour now) and `tumor_growth.glb` (red, tissue the PINN predicts will be new) are **optional exactly like `metrics.json`** — `loadTumorGLB()` resolves `null` on 404 and the controls stay hidden. `tumor_growth.glb` exists only on `evolved`; `tumor_surface.glb` is byte-identical across both variants on purpose, which is what makes the growth legible when you toggle.
+
+- **Alignment is implicit, not enforced.** `build_mesh()` maps vertices to `voxel_index * spacing` with no centering, so a mask stack of the same `(Z, H, W)` at the same spacing lands in the brain mesh's frame for free. Change the cropping, the spacing, or `export_stack`'s `np.rot90(vol[:, :, z])` in the notebook and the tumour silently drifts out of the brain — there is no registration step to catch it.
+- **The mask is padded one voxel on every face** before marching cubes, then the offset is subtracted back. A tumour touching the volume boundary otherwise yields an open surface, which makes `mesh.volume` unavailable and silently skips the volume check.
+- **Build-time volume gate.** `build_tumor_mesh()` prints mesh volume against `n_voxels * voxel_mm3` and flags >5%. The viewer shows this mesh beside an exact figure in `metrics.json`, so a mismatch is a correctness bug, not cosmetics — lower `--tumor_field_sigma` rather than shipping it. Decimation can leave a stray non-manifold edge; the divergence-theorem volume stays accurate and is reported with a trust label rather than withheld.
+- **Legend arithmetic:** on `evolved`, "Current" is `tumor.volume_ml - growth.delta_volume_ml`, which equals `initial`'s total exactly. Cyan + red = the evolved figure the panel reports. No new schema fields — it all comes out of `oracle.metrics/1`.
+- **`--tumor_only` is the only supported way to add a tumour to a built variant.** A full `generate_brain.py` run rewrites `brain_surface.glb` and 384 slice PNGs — 54 MB of churn per variant for geometry that did not change.
+- **Transparency ordering is load-bearing.** Tumour meshes get `renderOrder 0` and `depthWrite: true`; the shell gets `renderOrder 1` and `depthWrite: false` whenever `opacity < 1`. Leave the shell writing depth and it self-occludes and culls the tumour inside it. The tumour also uses its own `tumorClipPlane`, offset `TUMOR_CLIP_EPS` behind `clipPlane`, so its cross-section does not z-fight with the coplanar slice quad.
+
 ## Guided tour contract
 
 [docs/brain-viewer/tour.js](docs/brain-viewer/tour.js) is loaded by a **dynamic import inside a `.catch()`** at the end of `init()`. It is optional in exactly the way `metrics.json` is: rename or delete it and the viewer must behave as it did before the tour existed. Never move it to a static `import` — that would put it on the critical path and a syntax error there would blank the page.
@@ -120,6 +131,7 @@ Kaggle notebooks default to **Internet OFF**, and without it torchvision cannot 
 - **Beats drive the real UI**: set `slider.value` then `dispatchEvent(new Event('input'))`, or `.click()` an axis button, so `app.js`'s own handlers run. Do not reimplement what a handler already does — that is how the panel and the scene desynchronise.
 - **Cancellation keys on `e.isTrusted`.** Synthetic events dispatched by `tour.js` are untrusted, so the tour cannot cancel itself; any real gesture ends it. This is also why the cancel path cannot be exercised from jsdom — `dispatchEvent` can never produce a trusted event. Test `stop()`'s effects via the Skip button instead.
 - `tween()` carries a **watchdog** (`ms * 3 + 500`) because `requestAnimationFrame` does not fire in a backgrounded tab; without it a beat hangs forever with only Skip to escape.
+- Nine beats. Beat 1 pins every default the later beats assume (variant 0, axial, clip 100, tumour on, shell 0.35) — a second run otherwise inherits the first run's state, which the run-twice determinism test catches.
 - Beats declare `need()` predicates and are filtered at start. A beat that reads `metrics` must say so — beat 7 needs `variants.length > 1 && !!state.metrics`, and tests "are there metrics at all" rather than "is `growth` set", since `growth` is null on `initial` by contract and only populates after the variant switch.
 - Captions read live values out of `state.metrics`; do not hard-code numbers into them.
 

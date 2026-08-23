@@ -20,7 +20,7 @@ answer when someone pushes back.
 
 ## The five-minute version
 
-The tour has eight beats and runs about 35 seconds on its own. You are going to
+The tour has nine beats and runs about 40 seconds on its own. You are going to
 interrupt it constantly. That's the point — it guarantees you never lose your place.
 
 ### Opening line, before you click anything
@@ -62,7 +62,19 @@ The volumetry rows pulse.
 > post-processing. Dice is about 0.84, and that's the post-processed number, measured
 > the same way it runs here."
 
-### Beat 5 — "What the classifier saw"
+### Beat 5 — "The shape itself"
+
+The brain fades to 10% and the tumour is left hanging in space. Let it rotate.
+
+> "That's not a bright patch on a slice — that's the segmentation mask meshed with
+> marching cubes and put back in the volume at the same coordinates. The 96.9 millilitres
+> in the panel is the voxel count behind this exact surface."
+
+Good moment to drag the clip slider: the tumour cuts with the brain, and its cross-section
+lines up with the bright region in the MRI on the cut face. That alignment is the check —
+it means the mask really is registered to the volume, not just plausible-looking.
+
+### Beat 6 — "What the classifier saw"
 
 **Get ahead of the caveat. Say it before you're asked:**
 
@@ -73,7 +85,7 @@ The volumetry rows pulse.
 > out-of-distribution in the notebook, in the metrics file, and on that amber strip.
 > I'd rather show you that than hide it."
 
-### Beat 6 — "Six months later" ← **this is the payoff**
+### Beat 7 — "Six months later" ← **this is the payoff**
 
 The volume switches, the camera does not move, the mesh grows in place.
 
@@ -81,14 +93,15 @@ The volume switches, the camera does not move, the mesh grows in place.
 > diffusion and proliferation constants, integrated 180 days forward, and then the
 > segmenter and the GAN ran *again* on the predicted future. That's the closed loop."
 
-### Beat 7 — "Growth, quantified"
+### Beat 8 — "Growth, quantified"
 
-> "×1.76, plus 73.6 millilitres. And here's the check I care about: the PINN's density
-> threshold says 170.6 mL, while re-segmenting the predicted volume from scratch says
-> 169.7. Those are thresholded on completely different quantities and they agree to
-> half a percent."
+> "The cyan is the tumour today. The red shell around it is what the PINN predicts will
+> be new tissue in six months — ×1.76, plus 73.6 millilitres. And here's the check I care
+> about: the PINN's density threshold says 170.6 mL, while re-segmenting the predicted
+> volume from scratch says 169.7. Those are thresholded on completely different quantities
+> and they agree to half a percent."
 
-### Beat 8 — "Your turn"
+### Beat 9 — "Your turn"
 
 Toggle **Volume** back and forth manually a few times. The A/B is more convincing under
 your hand than on rails.
@@ -97,10 +110,11 @@ your hand than on rails.
 
 ## The ninety-second version
 
-When you get cut short: beat 1 → skip to beat 6 → beat 7. Use `›` on the caption card.
+When you get cut short: beat 1 → skip to beat 5 → beat 7 → beat 8. Use `›` on the caption card.
 
-> "Sparse slices in, dense 3D volume out. → Six months forward, predicted by a
-> physics-informed network and re-segmented. → ×1.76 growth, with two independent
+> "Sparse slices in, dense 3D volume out. → That's the segmented tumour, in 3D, at the
+> volume the panel reports. → Six months forward, predicted by a physics-informed network
+> and re-segmented. → Cyan is now, red is new: ×1.76 growth, with two independent
 > estimates agreeing to half a percent."
 
 Then stop talking.
@@ -141,6 +155,13 @@ inference, not a flattering raw forward pass.
 Two reasons, both honest. It's out of distribution here. And softmax confidence is
 uncalibrated and currently *under*-confident — mean max-softmax 0.9525 against 0.9802
 accuracy, a side effect of 0.05 label smoothing. Read it as a ranking score.
+
+**"Is that red region actually predicted, or just the tumour drawn bigger?"**
+Predicted, and the loop is closed. The Fisher–KPP PINN recovers this patient's diffusion and
+proliferation constants, integrates the density forward 180 days, and the red mesh is that
+density thresholded at 0.25. Then — independently — nnU-Net re-segments the synthesised
+future volume and gets 169.7 mL against the PDE's 170.6. The red is a prediction that two
+different models agree on, not a dilation.
 
 **"How do you aggregate per-slice predictions into one answer?"**
 Not by averaging — that's the interesting part. Most slices contain no tumour, so a
