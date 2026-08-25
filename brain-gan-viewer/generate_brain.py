@@ -331,10 +331,13 @@ def build_tumor_mesh(mask_dir: Path,
     # Undo the pad so the mesh sits in the brain mesh's frame.
     mesh.vertices -= np.array([slice_thickness, pixel_spacing, pixel_spacing])
 
-    # The viewer shows this mesh next to an exact voxel count in metrics.json.
+    # Marching-cubes fidelity check, in the viewer's DISPLAY grid — not physical mL.
+    # The mask stack is resampled from the native NIfTI grid (e.g. 240²) onto the
+    # display grid (256²), so these numbers run ~14% above the physical volume in
+    # metrics.json by construction. Do not reconcile them; metrics.json owns the
+    # physical figure, this owns "did marching cubes preserve the mask's shape".
     # Gaussian pre-smoothing then thresholding is only approximately volume-
-    # preserving, and a small structure feels it far more than a whole brain —
-    # so report the discrepancy loudly rather than shipping a contradiction.
+    # preserving, and a small structure feels it far more than a whole brain.
     voxel_mm3 = pixel_spacing * pixel_spacing * slice_thickness
     mask_mm3 = n_vox * voxel_mm3
     mesh_mm3 = abs(float(mesh.volume))
@@ -358,8 +361,8 @@ def build_tumor_mesh(mask_dir: Path,
             bits.append(f"{n_nonmanifold} non-manifold edge(s)")
         trust = (", ".join(bits) or "not watertight") + " — volume approximate"
     flag = "" if abs(err) <= 5.0 else "   <-- >5%, lower --tumor_field_sigma"
-    print(f"[tumor] {kind} volume: mesh {mesh_mm3/1000:.2f} mL vs "
-          f"mask {mask_mm3/1000:.2f} mL  ({err:+.1f}%)  [{trust}]{flag}")
+    print(f"[tumor] {kind}: mesh {mesh_mm3/1000:.2f} vs mask {mask_mm3/1000:.2f} "
+          f"display-grid mL ({err:+.1f}%)  [{trust}]{flag}")
     return mesh, n_vox
 
 
@@ -390,9 +393,14 @@ def build_tumor_meshes(output_dir: Path, args) -> dict:
         mesh.export(str(path))
         size_kb = path.stat().st_size / 1024
         print(f"[tumor] Exported {path}  ({size_kb:.0f} KB)")
+        print("[tumor]   note: volumes above are display-grid, for mesh-vs-mask "
+              "fidelity only —\n"
+              "[tumor]   the physical mL the viewer displays comes from metrics.json.")
         out[kind] = {
             "file": fname,
+            # Display-grid voxels, not native. metrics.json holds the physical volume.
             "voxels": n_vox,
+            "grid": "display",
             "vertices": len(mesh.vertices),
             "faces": len(mesh.faces),
             "bbox_min": mesh.bounds[0].tolist(),
@@ -735,8 +743,8 @@ def run(args):
     # ── Tumour-only fast path ────────────────────────────────────────────
     # The tumour meshes depend on neither volume_norm nor the brain mask, so
     # they can be added to an existing build without rebuilding brain_surface.glb
-    # and 384 slice PNGs — 54 MB of churn per variant for geometry that did not
-    # change. This is the supported way to add a tumour to a deployed variant.
+    # and 384 slice PNGs — ~8 MB and 385 files of churn per variant for geometry
+    # that did not change. This is the supported way to add a tumour to a variant.
     if args.tumor_only:
         if not (args.tumor_dir or args.growth_dir):
             raise SystemExit("--tumor_only needs --tumor_dir and/or --growth_dir")

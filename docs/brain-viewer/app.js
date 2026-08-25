@@ -692,12 +692,6 @@ async function loadVariant(index, keepView) {
     }
   }
 
-  // ~54 MB per variant (4.6 MB GLB + 3 x 128 slice PNGs). Say so on touch
-  // devices, where this is far more likely to be a metered connection.
-  if (state.firstLoad && window.matchMedia('(pointer: coarse)').matches) {
-    setLoadingMsg('Loading ~54 MB — best on Wi-Fi');
-  }
-
   disposeBrain();
   brainGroup = await loadBrainGLB();
   scene.add(brainGroup);

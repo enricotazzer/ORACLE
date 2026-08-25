@@ -57,6 +57,9 @@ def verify_assets(deploy_dst: Path) -> bool:
     tour = deploy_dst / "tour.js"
     print(f"  [{'ok' if tour.exists() else '--'}]  tour.js"
           f"{'' if tour.exists() else '  (absent — guided tour disabled, viewer unaffected)'}")
+    st = deploy_dst / "selftest.html"
+    print(f"  [{'ok' if st.exists() else '--'}]  selftest.html"
+          f"{' (dev tool, unlinked)' if st.exists() else '  (absent — no in-browser checks)'}")
 
     assets = deploy_dst / "assets"
     manifest = assets / "manifest.json"

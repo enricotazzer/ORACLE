@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Viewer self-check</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f; --panel: rgba(16,19,28,.72); --border: rgba(100,120,180,.22);
+    --accent: #4a9eff; --accent2: #7ec8c8; --text: #d4dde8; --dim: #8494a6;
+    --ok: #5fd08a; --bad: #ff6a6a; --warn: #ffb43c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body {
+    background: var(--bg); color: var(--text); padding: 24px;
+    font: 14px/1.6 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+  .sub { color: var(--dim); margin-top: 6px; max-width: 74ch; }
+  .limit {
+    margin: 16px 0 20px; padding: 12px 14px; font-size: 13px; color: #d9b078;
+    background: rgba(255,180,60,.06); border: 1px solid rgba(255,180,60,.28);
+    border-left: 3px solid var(--warn); border-radius: 8px;
+  }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
+  button {
+    padding: 9px 16px; border-radius: 7px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); color: #06121f; border-color: var(--accent); font-weight: 600; }
+  #tally { font-family: var(--mono); font-size: 13px; color: var(--dim); }
+  .vp { margin-bottom: 22px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+  .vp h2 {
+    font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent2); padding: 10px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;
+  }
+  .vp h2 .score { font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 7px 14px; border-bottom: 1px solid rgba(100,120,180,.10); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.st { width: 26px; font-weight: 700; }
+  td.nm { width: 40%; }
+  td.dt { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .pass td.st { color: var(--ok); }
+  .fail td.st { color: var(--bad); }
+  .fail td.nm { color: var(--bad); }
+  .skip td.st, .skip td.nm { color: var(--dim); }
+  /* The stage stays VISIBLE. An off-screen iframe gets its requestAnimationFrame
+     throttled, which stalls the tour-advance check — and watching the checks drive
+     the real viewer is the closest thing here to seeing it render. */
+  #stage {
+    margin: 18px 0; border: 1px solid var(--border); border-radius: 9px;
+    overflow: hidden; background: #000; position: relative;
+  }
+  #stage-label {
+    position: absolute; top: 8px; left: 10px; z-index: 5;
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    background: rgba(6,7,11,.8); padding: 3px 8px; border-radius: 4px;
+    pointer-events: none;
+  }
+  #stage iframe {
+    border: 0; display: block; transform-origin: top left;
+    pointer-events: none;            /* the runner drives it, not stray clicks */
+  }
+  #summary {
+    width: 100%; min-height: 120px; margin-top: 8px; padding: 12px;
+    background: #06070b; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 8px; font-family: var(--mono); font-size: 12px; resize: vertical;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Viewer self-check</h1>
+  <p class="sub">
+    Loads the real viewer in a same-origin iframe, resizes it through five viewports, and
+    asserts the things that are easy to break and hard to notice — panel geometry, drawer
+    behaviour, metrics wiring, the tour, and whether the tumour controls match what is
+    actually deployed.
+  </p>
+
+  <div class="limit">
+    <strong>What this cannot tell you.</strong> It checks layout, wiring and state — never
+    appearance. Whether the tumour reads correctly through the translucent shell while you
+    orbit, and whether its cross-section shimmers against the slice quad, still need eyes on
+    the real page.
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="run">Run all checks</button>
+    <button id="copy">Copy summary</button>
+    <span id="tally">idle</span>
+  </div>
+
+  <div id="results"></div>
+  <textarea id="summary" readonly placeholder="Summary appears here after a run."></textarea>
+
+  <div id="stage">
+    <div id="stage-label">idle</div>
+    <iframe id="frame" title="viewer under test" scrolling="no"></iframe>
+  </div>
+</div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   Same-origin, so the iframe's document is fully readable: every assertion
+   runs against real geometry from getBoundingClientRect(), not a mock.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const VIEWPORTS = [
+  { w: 1920, h: 1080, tag: 'desktop', deep: 'tour'    },
+  { w: 1440, h:  900, tag: 'laptop',  deep: null      },
+  { w: 1024, h:  640, tag: 'small laptop — short viewport', deep: null },
+  { w:  768, h: 1024, tag: 'tablet portrait', deep: null },
+  { w:  390, h:  844, tag: 'phone',   deep: 'drawers' },
+];
+
+const frame   = document.getElementById('frame');
+const stage   = document.getElementById('stage');
+const stageLb = document.getElementById('stage-label');
+
+// Show the iframe at its true CSS size (so media queries see the real width) but
+// scale it down to fit this page. transform does not affect innerWidth.
+function fitStage(w, h) {
+  const avail = stage.clientWidth || 960;
+  const scale = Math.min(1, avail / w);
+  frame.style.transform = `scale(${scale})`;
+  stage.style.height = Math.round(h * scale) + 'px';
+  stageLb.textContent = `${w} × ${h}  (shown at ${Math.round(scale * 100)}%)`;
+}
+const results = document.getElementById('results');
+const tally   = document.getElementById('tally');
+const summary = document.getElementById('summary');
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function rectOf(doc, sel) {
+  const el = doc.querySelector(sel);
+  if (!el) return null;
+  const cs = doc.defaultView.getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+  return el.getBoundingClientRect();
+}
+const overlaps = (a, b) =>
+  a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+// Rect is meaningfully on screen (allow a 2px hairline for rounding).
+const onScreen = (r, w, h) =>
+  r && r.right > 2 && r.bottom > 2 && r.left < w - 2 && r.top < h - 2;
+
+function loadFrame(w, h) {
+  return new Promise((resolve, reject) => {
+    frame.style.width = w + 'px';
+    frame.style.height = h + 'px';
+    fitStage(w, h);
+    let settled = false;
+    const to = setTimeout(() => { if (!settled) { settled = true; reject(new Error('load timeout (30s)')); } }, 30000);
+    frame.onload = async () => {
+      const doc = frame.contentDocument;
+      // The viewer signals readiness by adding .hidden to its loading overlay.
+      for (let i = 0; i < 300; i++) {
+        const ov = doc.getElementById('loading-overlay');
+        const err = doc.getElementById('error-overlay');
+        if (err && err.classList.contains('visible')) break;   // failed, but settled
+        if (ov && ov.classList.contains('hidden')) break;
+        await sleep(100);
+      }
+      await sleep(400);                                        // let a frame or two render
+      if (!settled) { settled = true; clearTimeout(to); resolve(); }
+    };
+    // Reload rather than cache-bust: we want the 8 MB served from cache after run 1.
+    frame.src = './index.html?selftest=' + Date.now();
+  });
+}
+
+/* ── Assertions ─────────────────────────────────────────────────────────── */
+
+async function staticChecks(vp, out) {
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  const W = win.innerWidth, H = win.innerHeight;
+  const add = (name, pass, detail) => out.push({ name, pass, detail });
+
+  add('iframe is the intended size', W === vp.w && H === vp.h, `${W}x${H}`);
+
+  const err = doc.getElementById('error-overlay');
+  add('no error overlay', !(err && err.classList.contains('visible')),
+      err && err.classList.contains('visible')
+        ? (doc.getElementById('error-body')?.textContent || '').trim().slice(0, 120) : 'clean');
+
+  const ov = doc.getElementById('loading-overlay');
+  add('scene finished loading', !!ov && ov.classList.contains('hidden'),
+      ov ? (ov.classList.contains('hidden') ? 'overlay hidden' : 'still loading')
+         : 'overlay missing');
+
+  const canvas = doc.querySelector('#canvas-container canvas');
+  add('canvas present and sized',
+      !!canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0,
+      canvas ? `${canvas.clientWidth}x${canvas.clientHeight}` : 'no canvas');
+
+  let gl = null;
+  try { gl = canvas && (canvas.getContext('webgl2') || canvas.getContext('webgl')); } catch (_) {}
+  add('WebGL context', !!gl, gl ? (gl.constructor.name || 'ok') : 'unavailable');
+
+  add('no horizontal page scroll',
+      doc.documentElement.scrollWidth <= doc.documentElement.clientWidth + 1,
+      `scrollWidth ${doc.documentElement.scrollWidth} vs client ${doc.documentElement.clientWidth}`);
+
+  // Geometry. Above 900px both panels are fixed rails; below they park off-canvas.
+  const panel = rectOf(doc, '#panel');
+  const metr  = rectOf(doc, '#metrics-panel');
+  const drawerMode = vp.w <= 900;
+
+  if (!drawerMode) {
+    add('#panel fits on screen',
+        panel && panel.top >= -1 && panel.bottom <= H + 1 && panel.right <= W + 1,
+        panel ? `top ${panel.top|0} bottom ${panel.bottom|0} vs viewport ${H}` : 'not rendered');
+    add('#metrics-panel fits on screen',
+        !metr || (metr.top >= -1 && metr.bottom <= H + 1 && metr.left >= -1),
+        metr ? `top ${metr.top|0} bottom ${metr.bottom|0} vs viewport ${H}` : 'hidden (no metrics)');
+    add('panels do not overlap', !overlaps(panel, metr),
+        panel && metr ? `panel.left ${panel.left|0}, metrics.right ${metr.right|0}` : 'one panel hidden');
+  } else {
+    add('#panel parked off-canvas', !onScreen(panel, W, H),
+        panel ? `left ${panel.left|0} right ${panel.right|0} (viewport ${W})` : 'not rendered');
+    add('#metrics-panel parked off-canvas', !metr || !onScreen(metr, W, H),
+        metr ? `left ${metr.left|0} right ${metr.right|0}` : 'hidden');
+    const pt = rectOf(doc, '#panel-toggle');
+    add('drawer toggles visible and touch-sized',
+        !!pt && pt.width >= 40 && pt.height >= 40,
+        pt ? `${Math.round(pt.width)}x${Math.round(pt.height)}px` : 'no toggle');
+  }
+
+  // Metrics wiring — the panel must agree with the JSON it was built from.
+  let mj = null;
+  try { mj = await (await fetch('./assets/initial/metrics.json')).json(); } catch (_) {}
+  const shown = doc.getElementById('m-volume-ml')?.textContent?.trim() || '';
+  if (!mj) {
+    add('metrics panel matches metrics.json', true, 'no metrics.json — panel correctly hidden');
+  } else {
+    const want = mj.tumor.volume_ml.toFixed(2) + ' mL';
+    add('metrics panel matches metrics.json', shown === want, `shows "${shown}", expected "${want}"`);
+  }
+
+  // Tumour controls must reflect what is actually deployed, before or after the mask run.
+  let glbOk = false;
+  try { glbOk = (await fetch('./assets/initial/tumor_surface.glb', { method: 'HEAD' })).ok; } catch (_) {}
+  const tg = doc.getElementById('tumor-group');
+  const tgShown = !!tg && doc.defaultView.getComputedStyle(tg).display !== 'none';
+  add('tumour controls match deployed mesh', glbOk === tgShown,
+      `tumor_surface.glb ${glbOk ? '200' : '404'}, controls ${tgShown ? 'shown' : 'hidden'}`);
+}
+
+async function drawerChecks(out) {
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  const W = win.innerWidth, H = win.innerHeight;
+  const add = (name, pass, detail) => out.push({ name, pass, detail });
+
+  doc.getElementById('panel-toggle')?.click();
+  await sleep(450);
+  const p1 = rectOf(doc, '#panel'), m1 = rectOf(doc, '#metrics-panel');
+  add('controls drawer opens', onScreen(p1, W, H),
+      p1 ? `left ${p1.left|0} top ${p1.top|0}` : 'not rendered');
+  add('opening controls leaves metrics closed', !m1 || !onScreen(m1, W, H),
+      m1 ? `left ${m1.left|0}` : 'hidden');
+  add('open drawer fits on screen', !p1 || (p1.bottom <= H + 1 && p1.top >= -1),
+      p1 ? `top ${p1.top|0} bottom ${p1.bottom|0} vs ${H}` : 'n/a');
+
+  const mt = doc.getElementById('metrics-toggle');
+  if (mt && doc.defaultView.getComputedStyle(mt).display !== 'none') {
+    mt.click();
+    await sleep(450);
+    const p2 = rectOf(doc, '#panel'), m2 = rectOf(doc, '#metrics-panel');
+    add('metrics drawer opens and closes the other',
+        onScreen(m2, W, H) && !onScreen(p2, W, H),
+        `metrics ${onScreen(m2, W, H) ? 'open' : 'closed'}, controls ${onScreen(p2, W, H) ? 'open' : 'closed'}`);
+    mt.click(); await sleep(350);
+  } else {
+    out.push({ name: 'metrics drawer opens and closes the other', skip: true,
+               detail: 'no metrics toggle (no metrics.json)' });
+  }
+}
+
+async function tourChecks(out) {
+  const doc = frame.contentDocument;
+  const add = (name, pass, detail) => out.push({ name, pass, detail });
+
+  const btn = doc.getElementById('tour-btn');
+  if (!btn) { out.push({ name: 'tour', skip: true, detail: 'tour.js did not load' }); return; }
+  add('tour.js loaded and installed its button', true, 'present');
+
+  const clipBefore = doc.getElementById('clip-slider').value;
+  btn.click();
+  await sleep(700);
+  const card = doc.getElementById('tour-card');
+  add('tour card appears', !!card && card.classList.contains('visible'),
+      card ? (card.classList.contains('visible') ? 'visible' : 'not visible') : 'no card');
+
+  const step1 = doc.querySelector('#tour-card .tour-step')?.textContent || '';
+  await sleep(6000);
+  const step2 = doc.querySelector('#tour-card .tour-step')?.textContent || '';
+  add('tour advances between beats', !!step1 && !!step2 && step1 !== step2,
+      `"${step1}" -> "${step2}"`);
+
+  // A real user gesture must end it. Trusted events cannot be synthesised, but the
+  // Skip control runs the same stop() teardown.
+  doc.querySelector('#tour-card .tour-skip')?.click();
+  await sleep(500);
+  add('tour stops and cleans up',
+      !card.classList.contains('visible') &&
+      !doc.body.classList.contains('tour-active') &&
+      doc.querySelectorAll('.tour-pulse').length === 0,
+      `card ${card.classList.contains('visible') ? 'visible' : 'hidden'}, ` +
+      `pulses ${doc.querySelectorAll('.tour-pulse').length}`);
+
+  // Variant switch must preserve the cut, so the two volumes are comparable.
+  const vbtns = doc.querySelectorAll('#variant-toggle .variant-btn');
+  if (vbtns.length > 1) {
+    doc.getElementById('clip-slider').value = '60';
+    doc.getElementById('clip-slider').dispatchEvent(new frame.contentWindow.Event('input'));
+    await sleep(300);
+    vbtns[1].click();
+    await sleep(8000);
+    const growth = doc.getElementById('m-growth-group');
+    const gShown = !!growth && doc.defaultView.getComputedStyle(growth).display !== 'none';
+    add('switching to evolved reveals growth rows', gShown, gShown ? 'shown' : 'hidden');
+    add('variant switch preserves the clip position',
+        doc.getElementById('clip-slider').value === '60',
+        `clip is ${doc.getElementById('clip-slider').value}, was 60`);
+    vbtns[0].click(); await sleep(6000);
+  } else {
+    out.push({ name: 'variant switch', skip: true, detail: 'only one variant deployed' });
+  }
+  void clipBefore;
+}
+
+/* ── Runner ─────────────────────────────────────────────────────────────── */
+
+async function runAll() {
+  const runBtn = document.getElementById('run');
+  runBtn.disabled = true;
+  results.innerHTML = '';
+  const lines = [];
+  let pass = 0, fail = 0, skip = 0;
+
+  for (const vp of VIEWPORTS) {
+    tally.textContent = `loading ${vp.w}x${vp.h} …`;
+    const out = [];
+    try {
+      await loadFrame(vp.w, vp.h);
+      await staticChecks(vp, out);
+      if (vp.deep === 'drawers') await drawerChecks(out);
+      if (vp.deep === 'tour')    await tourChecks(out);
+    } catch (e) {
+      out.push({ name: 'viewport run', pass: false, detail: String(e && e.message || e) });
+    }
+
+    const p = out.filter(o => o.pass === true).length;
+    const f = out.filter(o => o.pass === false).length;
+    const s = out.filter(o => o.skip).length;
+    pass += p; fail += f; skip += s;
+
+    const box = document.createElement('div');
+    box.className = 'vp';
+    box.innerHTML =
+      `<h2><span>${vp.w} × ${vp.h} — ${vp.tag}</span>` +
+      `<span class="score">${p} pass · ${f} fail${s ? ' · ' + s + ' skip' : ''}</span></h2>` +
+      '<table>' + out.map(o => {
+        const cls = o.skip ? 'skip' : (o.pass ? 'pass' : 'fail');
+        const mark = o.skip ? '–' : (o.pass ? '✓' : '✗');
+        return `<tr class="${cls}"><td class="st">${mark}</td>` +
+               `<td class="nm">${o.name}</td><td class="dt">${o.detail || ''}</td></tr>`;
+      }).join('') + '</table>';
+    results.appendChild(box);
+
+    lines.push(`## ${vp.w}x${vp.h} — ${vp.tag}`);
+    out.forEach(o => lines.push(
+      `  ${o.skip ? 'SKIP' : (o.pass ? 'PASS' : 'FAIL')}  ${o.name}${o.detail ? '   [' + o.detail + ']' : ''}`));
+    lines.push('');
+
+    tally.textContent = `${pass} pass · ${fail} fail${skip ? ' · ' + skip + ' skip' : ''}`;
+  }
+
+  document.title = fail ? `✗ ${fail} failing — Viewer self-check` : '✓ Viewer self-check';
+  tally.textContent = fail
+    ? `${pass} pass · ${fail} FAIL${skip ? ' · ' + skip + ' skip' : ''}`
+    : `all ${pass} checks pass${skip ? ' · ' + skip + ' skipped' : ''}`;
+  tally.style.color = fail ? 'var(--bad)' : 'var(--ok)';
+  summary.value = `ORACLE viewer self-check — ${new Date().toISOString()}\n` +
+                  `${pass} pass, ${fail} fail, ${skip} skip\n\n` + lines.join('\n');
+  runBtn.disabled = false;
+}
+
+document.getElementById('run').addEventListener('click', runAll);
+document.getElementById('copy').addEventListener('click', () => {
+  summary.select(); document.execCommand('copy');
+});
+runAll();
+</script>
+</body>
+</html>

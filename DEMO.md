@@ -11,7 +11,7 @@ answer when someone pushes back.
 
 ## Before you start
 
-- [ ] Open the viewer once beforehand. It streams ~54 MB per volume; the second load is cached, the first is not.
+- [ ] Open the viewer once beforehand. It streams ~10 MB per volume; the second load is cached, the first is not.
 - [ ] If the connection is unknown, serve locally instead: `cd docs/brain-viewer && python3 -m http.server 8080`, then `localhost:8080/?tour=1`.
 - [ ] Full screen, bookmarks bar hidden. The viewer is a fixed-layout WebGL page — it looks best with nothing else on screen.
 - [ ] Know that **any drag, scroll, or `Esc` ends the tour instantly** and hands you the controls. That is a feature: use it to take over mid-beat.

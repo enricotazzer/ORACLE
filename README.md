@@ -12,7 +12,7 @@
 ### [▶ Live demo](https://enricotazzer.github.io/ORACLE/) · [Guided tour](https://enricotazzer.github.io/ORACLE/brain-viewer/?tour=1) · [Demo script](DEMO.md)
 
 <sub>The tour drives the 3D viewer itself in about 40 seconds — drag at any point to take over.<br/>
-Streams ~54 MB per volume; desktop and WebGL recommended.</sub>
+~10 MB per volume, WebGL required; works on mobile.</sub>
 
 </div>
 
@@ -492,6 +492,21 @@ These are intentional scope boundaries of the prototype, not defects to be fixed
   in `metrics.json` (`out_of_distribution: true`), and in the viewer.
 - **Not a medical device.** Research and educational use only — not for diagnosis, treatment
   planning, or any clinical decision-making.
+
+---
+
+## 📄 Licence
+
+The **code** in this repository — notebooks, the viewer, and the `brain-gan-viewer`
+pipeline — is released under the [MIT Licence](LICENSE).
+
+The **data is not.** ORACLE trains and evaluates on third-party datasets that carry
+their own terms and are **not redistributed here**: MU-Glioma-Post, BraTS 2024, and
+`masoudnickparvar/brain-tumor-mri-dataset`. Obtain them from their original sources
+and comply with their licences. The trained checkpoints are derived from that data —
+treat them as subject to the same terms, not as MIT-licensed artifacts.
+
+Not a medical device. Research and educational use only.
 
 ---
 
